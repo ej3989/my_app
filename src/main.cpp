@@ -272,22 +272,13 @@ public:
 
 		printf("Bluetooth initialized\n");
 
-		ret = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1,
-				      advertising_data,
-				      ARRAY_SIZE(advertising_data),
-				      scan_response_data,
-				      ARRAY_SIZE(scan_response_data));
-		if (ret < 0) {
-			printf("Failed to start Bluetooth advertising: %d\n", ret);
-			return ret;
-		}
-
-		printf("Bluetooth advertising as \"%s\"\n", CONFIG_BT_DEVICE_NAME);
-		return 0;
+		return start_advertising();
 	}
 
 	static void connected_entry(bt_conn *conn, uint8_t err)
 	{
+		ARG_UNUSED(conn);
+
 		if (err != 0) {
 			printf("Bluetooth connection failed: 0x%02x\n", err);
 			return;
@@ -298,7 +289,17 @@ public:
 
 	static void disconnected_entry(bt_conn *conn, uint8_t reason)
 	{
+		ARG_UNUSED(conn);
+
 		printf("Bluetooth disconnected: 0x%02x\n", reason);
+	}
+
+	static void recycled_entry()
+	{
+		int ret = start_advertising();
+		if (ret < 0 && ret != -EALREADY) {
+			printf("Failed to restart Bluetooth advertising: %d\n", ret);
+		}
 	}
 
 	static ssize_t read_entry(bt_conn *conn,
@@ -325,6 +326,26 @@ public:
 	}
 
 private:
+	static int start_advertising()
+	{
+		int ret = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1,
+				      advertising_data,
+				      ARRAY_SIZE(advertising_data),
+				      scan_response_data,
+				      ARRAY_SIZE(scan_response_data));
+		if (ret < 0) {
+			if (ret == -EALREADY) {
+				return ret;
+			}
+
+			printf("Failed to start Bluetooth advertising: %d\n", ret);
+			return ret;
+		}
+
+		printf("Bluetooth advertising as \"%s\"\n", CONFIG_BT_DEVICE_NAME);
+		return 0;
+	}
+
 	ssize_t read(bt_conn *conn,
 		     const bt_gatt_attr *attr,
 		     void *buf,
@@ -349,6 +370,10 @@ private:
 		      uint16_t offset,
 		      uint8_t flags)
 	{
+		ARG_UNUSED(conn);
+		ARG_UNUSED(attr);
+		ARG_UNUSED(flags);
+
 		if (offset != 0) {
 			return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
 		}
@@ -427,6 +452,7 @@ static BluetoothRgbPeripheral bluetooth(&blinker);
 BT_CONN_CB_DEFINE(connection_callbacks) = {
 	.connected = BluetoothRgbPeripheral::connected_entry,
 	.disconnected = BluetoothRgbPeripheral::disconnected_entry,
+	.recycled = BluetoothRgbPeripheral::recycled_entry,
 };
 
 BT_GATT_SERVICE_DEFINE(rgb_service,
