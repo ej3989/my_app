@@ -22,10 +22,10 @@
 constexpr int kLedCount = 1;
 constexpr int kButtonDebounceMs = 30;
 constexpr int64_t kLongPressMs = 1000;
+constexpr int kBleAdvertisingWindowMs = 60000;
 
 static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(SW0_NODE, gpios);
 static const struct device *const strip = DEVICE_DT_GET(STRIP_NODE);
-static struct led_rgb pixels[kLedCount];
 
 static const struct bt_data advertising_data[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
@@ -46,8 +46,6 @@ struct Color {
 	uint8_t blue;
 };
 
-static Color current_color;
-
 static constexpr Color kColors[] = {
 	{20, 0, 0},
 	{0, 20, 0},
@@ -65,29 +63,6 @@ static const char *mode_to_string(Mode mode)
 	default:
 		return "unknown";
 	}
-}
-
-static int set_rgb_raw(uint8_t red, uint8_t green, uint8_t blue)
-{
-	pixels[0] = {
-		.r = red,
-		.g = green,
-		.b = blue,
-	};
-
-	int ret = led_strip_update_rgb(strip, pixels, ARRAY_SIZE(pixels));
-	if (ret < 0) {
-		printf("Failed to update LED strip: %d\n", ret);
-		return ret;
-	}
-
-	current_color = {
-		.red = red,
-		.green = green,
-		.blue = blue,
-	};
-
-	return 0;
 }
 
 class RgbBlinker {
@@ -109,7 +84,7 @@ public:
 
 	int set(uint8_t red, uint8_t green, uint8_t blue)
 	{
-		int ret = set_rgb_raw(red, green, blue);
+		int ret = set_raw(red, green, blue);
 		if (ret < 0) {
 			return ret;
 		}
@@ -137,8 +112,38 @@ public:
 		return on_;
 	}
 
+	Color current_color() const
+	{
+		return current_color_;
+	}
+
 private:
+	int set_raw(uint8_t red, uint8_t green, uint8_t blue)
+	{
+		pixels_[0] = {
+			.r = red,
+			.g = green,
+			.b = blue,
+		};
+
+		int ret = led_strip_update_rgb(strip_, pixels_, ARRAY_SIZE(pixels_));
+		if (ret < 0) {
+			printf("Failed to update LED strip: %d\n", ret);
+			return ret;
+		}
+
+		current_color_ = {
+			.red = red,
+			.green = green,
+			.blue = blue,
+		};
+
+		return 0;
+	}
+
 	const device *strip_;
+	led_rgb pixels_[kLedCount] = {};
+	Color current_color_ = {};
 	bool on_ = false;
 };
 
@@ -260,10 +265,14 @@ class BluetoothRgbPeripheral {
 public:
 	explicit BluetoothRgbPeripheral(RgbBlinker *blinker) : blinker_(blinker)
 	{
+		instance_ = this;
 	}
 
 	int start()
 	{
+		k_work_init_delayable(&advertising_timeout_work_,
+				      BluetoothRgbPeripheral::advertising_timeout_entry);
+
 		int ret = bt_enable(nullptr);
 		if (ret < 0) {
 			printf("Failed to initialize Bluetooth: %d\n", ret);
@@ -271,8 +280,26 @@ public:
 		}
 
 		printf("Bluetooth initialized\n");
+		printf("Bluetooth advertising is closed. Long press the button to open it for %d seconds.\n",
+		       kBleAdvertisingWindowMs / 1000);
+		return 0;
+	}
 
-		return start_advertising();
+	void open_advertising_window()
+	{
+		advertising_window_open_ = true;
+
+		int ret = start_advertising();
+		if (ret < 0 && ret != -EALREADY) {
+			printf("Failed to open Bluetooth advertising window: %d\n", ret);
+			return;
+		}
+
+		(void)k_work_reschedule(&advertising_timeout_work_,
+					K_MSEC(kBleAdvertisingWindowMs));
+
+		printf("Bluetooth advertising window open for %d seconds\n",
+		       kBleAdvertisingWindowMs / 1000);
 	}
 
 	static void connected_entry(bt_conn *conn, uint8_t err)
@@ -282,6 +309,10 @@ public:
 		if (err != 0) {
 			printf("Bluetooth connection failed: 0x%02x\n", err);
 			return;
+		}
+
+		if (instance_ != nullptr) {
+			instance_->advertising_active_ = false;
 		}
 
 		printf("Bluetooth connected\n");
@@ -296,9 +327,8 @@ public:
 
 	static void recycled_entry()
 	{
-		int ret = start_advertising();
-		if (ret < 0 && ret != -EALREADY) {
-			printf("Failed to restart Bluetooth advertising: %d\n", ret);
+		if (instance_ != nullptr) {
+			instance_->handle_recycled();
 		}
 	}
 
@@ -326,7 +356,17 @@ public:
 	}
 
 private:
-	static int start_advertising()
+	static void advertising_timeout_entry(k_work *work)
+	{
+		auto *delayable = k_work_delayable_from_work(work);
+		auto *self = CONTAINER_OF(delayable,
+					  BluetoothRgbPeripheral,
+					  advertising_timeout_work_);
+
+		self->close_advertising_window();
+	}
+
+	int start_advertising()
 	{
 		int ret = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1,
 				      advertising_data,
@@ -335,6 +375,7 @@ private:
 				      ARRAY_SIZE(scan_response_data));
 		if (ret < 0) {
 			if (ret == -EALREADY) {
+				advertising_active_ = true;
 				return ret;
 			}
 
@@ -342,8 +383,44 @@ private:
 			return ret;
 		}
 
+		advertising_active_ = true;
 		printf("Bluetooth advertising as \"%s\"\n", CONFIG_BT_DEVICE_NAME);
 		return 0;
+	}
+
+	void stop_advertising()
+	{
+		if (!advertising_active_) {
+			return;
+		}
+
+		int ret = bt_le_adv_stop();
+		if (ret < 0) {
+			printf("Failed to stop Bluetooth advertising: %d\n", ret);
+			return;
+		}
+
+		advertising_active_ = false;
+		printf("Bluetooth advertising stopped\n");
+	}
+
+	void close_advertising_window()
+	{
+		advertising_window_open_ = false;
+		stop_advertising();
+		printf("Bluetooth advertising window closed\n");
+	}
+
+	void handle_recycled()
+	{
+		if (!advertising_window_open_) {
+			return;
+		}
+
+		int ret = start_advertising();
+		if (ret < 0 && ret != -EALREADY) {
+			printf("Failed to restart Bluetooth advertising: %d\n", ret);
+		}
 	}
 
 	ssize_t read(bt_conn *conn,
@@ -352,13 +429,14 @@ private:
 		     uint16_t len,
 		     uint16_t offset)
 	{
+		const Color color = blinker_->current_color();
 		char text[16];
 		int written = snprintf(text,
 				       sizeof(text),
 				       "%u,%u,%u",
-				       current_color.red,
-				       current_color.green,
-				       current_color.blue);
+				       color.red,
+				       color.green,
+				       color.blue);
 
 		return bt_gatt_attr_read(conn, attr, buf, len, offset, text, written);
 	}
@@ -445,7 +523,14 @@ private:
 	}
 
 	RgbBlinker *blinker_;
+	k_work_delayable advertising_timeout_work_ = {};
+	bool advertising_window_open_ = false;
+	bool advertising_active_ = false;
+
+	static BluetoothRgbPeripheral *instance_;
 };
+
+BluetoothRgbPeripheral *BluetoothRgbPeripheral::instance_ = nullptr;
 
 static BluetoothRgbPeripheral bluetooth(&blinker);
 
@@ -474,14 +559,15 @@ static void on_button_changed(int state)
 
 	int64_t held_ms = k_uptime_get() - pressed_at_ms;
 
-	if (mode != Mode::Auto) {
-		return;
-	}
-
 	if (held_ms >= kLongPressMs) {
 		color_index = 0;
 		(void)blinker.off();
-		printf("Long press: LED off\n");
+		bluetooth.open_advertising_window();
+		printf("Long press: LED off and Bluetooth advertising open\n");
+		return;
+	}
+
+	if (mode != Mode::Auto) {
 		return;
 	}
 

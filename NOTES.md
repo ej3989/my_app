@@ -39,8 +39,19 @@
   - `user_data` / context pointer
   - 전역/static 객체 직접 접근 방식
   - `bt_conn *conn` 매개변수 의미
-  - BLE 연결 해제 후 advertising 재시작
+  - 버튼 long press로 60초 동안 BLE advertising 열기
   - `main()`이 return되어도 Zephyr 앱이 계속 동작하는 이유
+
+- [ZEPHYR_MACRO_NOTES.md](ZEPHYR_MACRO_NOTES.md)
+  - Zephyr 매크로가 이름/객체를 만드는 이유
+  - linker section에 객체를 자동 등록하는 방식
+  - `BT_CONN_CB_DEFINE`, `BT_GATT_SERVICE_DEFINE`, `SHELL_CMD_REGISTER` 같은 자동 등록 매크로
+
+- [POWER_MANAGEMENT_NOTES.md](POWER_MANAGEMENT_NOTES.md)
+  - Zephyr power management 기본 구조
+  - ESP32-S3 light sleep / deep sleep 차이
+  - deep sleep에서 BLE, workqueue, RAM 상태가 어떻게 되는지
+  - 버튼 wakeup을 붙일 때 봐야 할 흐름
 
 ## 현재 프로젝트 요약
 
@@ -55,7 +66,7 @@
 - shell 명령으로 RGB/mode/status 제어
 - BLE advertising 이름: `RGB Button`
 - BLE GATT characteristic으로 RGB 값 read/write
-- BLE 연결 해제 후 advertising 재시작
+- 버튼 long press 때만 60초 동안 BLE advertising 허용
 
 ## 기본 명령
 

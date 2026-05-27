@@ -637,3 +637,156 @@ GATT callback:
   attr->user_data에 저장해둔 &bluetooth로 객체 찾음
 ```
 
+## 현재 BLE 보안 상태와 다른 사람이 접속할 수 있는지
+
+현재 앱은 pairing, bonding, 암호화, 인증을 요구하지 않는 BLE peripheral입니다.
+
+따라서 근처에 있는 다른 사람이 BLE scanner 앱을 사용하면 다음을 할 수 있습니다.
+
+```text
+1. RGB Button이라는 advertising 이름을 볼 수 있음
+2. BLE address 정보를 볼 수 있음
+3. custom service UUID를 볼 수 있음
+4. custom characteristic UUID를 볼 수 있음
+5. characteristic read 가능
+6. characteristic write 가능
+```
+
+현재 노출되는 주요 정보:
+
+```text
+Device name:
+  RGB Button
+
+Service UUID:
+  9f1d0000-3d2f-4f3a-8b11-123456789abc
+
+Characteristic UUID:
+  9f1d0001-3d2f-4f3a-8b11-123456789abc
+
+Read value:
+  현재 RGB 값
+  예: 20,0,0
+```
+
+현재 write도 열려 있으므로, 다른 사람이 가까이서 연결하면 LED 색을 바꿀 수 있습니다.
+
+```text
+Write UTF-8:
+  20,0,0
+  0,20,0
+  0,0,20
+  0,0,0
+```
+
+중요한 점:
+
+```text
+현재 앱에는 개인정보나 파일, Wi-Fi 비밀번호 같은 정보는 없음
+하지만 BLE 이름, UUID, 현재 RGB 값은 볼 수 있음
+그리고 RGB 값을 쓸 수 있음
+```
+
+즉 현재 위험도는 낮지만, "아무나 LED를 제어할 수 있는 상태"입니다.
+
+## 다른 사람 접속을 줄이거나 막는 방법
+
+선택지는 여러 단계가 있습니다.
+
+### 1. 연결 가능 시간을 짧게 하기
+
+부팅 후 일정 시간만 advertising하고, 이후에는 advertising을 끄는 방식입니다.
+
+```text
+장점:
+  구현이 비교적 쉬움
+  평소에는 스캔에 덜 노출됨
+
+단점:
+  다시 연결하려면 버튼이나 재부팅 등으로 advertising을 다시 켜야 함
+```
+
+### 2. 버튼을 눌렀을 때만 advertising 켜기
+
+예를 들어 보드 버튼을 길게 누르면 60초 동안만 BLE 연결을 허용할 수 있습니다.
+
+```text
+평소:
+  advertising off
+
+버튼 long press:
+  advertising on
+
+60초 후 또는 연결 후:
+  advertising off
+```
+
+학습용으로도 좋은 다음 단계입니다.
+
+현재 앱은 이 방식을 적용했습니다.
+
+```text
+부팅 직후:
+  Bluetooth stack만 초기화
+  advertising off
+
+버튼 long press:
+  LED off
+  advertising on
+  60초 timer 시작
+
+60초 후:
+  advertising off
+```
+
+연결이 끊겼을 때도 60초 window가 아직 열려 있으면 다시 advertising을 시작합니다. window가 닫힌 뒤에는 다시 advertising하지 않습니다.
+
+### 3. Write 값에 간단한 토큰 넣기
+
+예를 들어 write 값을 다음처럼 만들 수 있습니다.
+
+```text
+1234:20,0,0
+```
+
+코드에서 `1234:`가 앞에 없으면 거부합니다.
+
+```text
+장점:
+  구현 쉬움
+
+단점:
+  BLE packet을 볼 수 있는 사람에게는 강한 보안이 아님
+  학습/간단한 장난 방지 정도
+```
+
+### 4. BLE pairing/security 적용
+
+Zephyr BLE security 기능을 사용해서 암호화된 연결이나 인증된 연결만 read/write를 허용할 수 있습니다.
+
+현재 permission:
+
+```cpp
+BT_GATT_PERM_READ | BT_GATT_PERM_WRITE
+```
+
+보안을 적용하면 이런 방향으로 바꿀 수 있습니다.
+
+```cpp
+BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT
+```
+
+다만 이 경우 pairing 흐름, key 저장, settings 설정 등 추가 개념이 필요합니다.
+
+## 현재 단계의 결론
+
+현재 예제는 학습용 BLE GATT peripheral이므로, 주변 사람이 BLE 앱으로 연결해서 RGB 값을 읽고 쓸 수 있습니다.
+
+실제 제품처럼 만들려면 최소한 다음 중 하나를 추가하는 것이 좋습니다.
+
+```text
+1. 버튼을 눌렀을 때만 advertising
+2. 연결 가능 시간 제한
+3. write token 검사
+4. BLE pairing/security
+```
