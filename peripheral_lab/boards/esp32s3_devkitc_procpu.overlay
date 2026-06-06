@@ -1,0 +1,15 @@
+/ {
+	aliases {
+		lab-button = &button0;
+		lab-i2c = &i2c0;
+		lab-spi = &spi2;
+	};
+};
+
+&i2c0 {
+	status = "okay";
+};
+
+&spi2 {
+	status = "okay";
+};
