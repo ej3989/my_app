@@ -1,16 +1,20 @@
 #include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <zephyr/dt-bindings/gpio/gpio.h>
 #include <zephyr/dt-bindings/led/led.h>
+#include <zephyr/dt-bindings/display/panel.h>
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+
 
 / {
     aliases {
         app-buttons = &app_buttons;
         led-strip = &led_strip;
+        display = &lcd0;
     };
 
     app_buttons: buttons_ej {
         compatible = "gpio-keys";
         debounce-interval-ms = <50>;
-        polling-mode;
 
         key0: key_0 {
             gpios = <&gpio0 4 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
@@ -33,6 +37,67 @@
             zephyr,code = <INPUT_KEY_4>;
         };
     };
+    chosen {
+        zephyr,display = &lcd0;
+    };
+
+    lcd_bl: lcd_bl {
+        compatible = "gpio-leds";
+
+        backlight {
+            gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
+            label = "LCD Backlight";
+        };
+    };
+    mipi_dbi {
+        compatible = "zephyr,mipi-dbi-spi";
+        spi-dev = <&spi2>;
+        dc-gpios = <&gpio0 9 GPIO_ACTIVE_HIGH>;
+        reset-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;
+        write-only;
+
+        #address-cells = <1>;
+        #size-cells = <0>;
+        status = "okay";
+
+        lcd0: st7789v@0 {
+            compatible = "sitronix,st7789v";
+            reg = <0>;
+
+            mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
+            mipi-max-frequency = <60000000>;
+
+            width = <240>;
+            height = <320>;
+            pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
+
+            x-offset = <0>;
+            y-offset = <0>;
+
+            vcom = <0x19>;
+            gctrl = <0x35>;
+            vrhs = <0x12>;
+            vdvs = <0x20>;
+            mdac = <0xc0>;
+            gamma = <0x01>;
+            lcm = <0x2c>;
+
+            porch-param = [0c 0c 00 33 33];
+            cmd2en-param = [5a 69 02 01];
+            pwctrl1-param = [a4 a1];
+            pvgam-param = [d0 04 0d 11 13 2b 3f 54 4c 18 0d 0b 1f 23];
+            nvgam-param = [d0 04 0c 11 13 2c 3f 44 51 2f 1f 1f 20 23];
+            ram-param = [00 f0];
+            rgb-param = [cd 08 14];
+            status = "okay";
+        };
+    };
+};
+
+&spi2 {
+    status = "okay";
+    pinctrl-0 = <&spim2_default>;
+    pinctrl-names = "default";
 };
 
 &i2s0_default {
