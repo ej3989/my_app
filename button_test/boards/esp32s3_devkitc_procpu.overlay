@@ -100,6 +100,10 @@
     pinctrl-names = "default";
 };
 
+&spi3 {
+    status = "disabled";
+};
+
 &i2s0_default {
     group1 {
         pinmux = <I2S0_O_SD_GPIO38>;
