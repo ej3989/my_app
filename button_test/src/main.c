@@ -48,6 +48,7 @@
 #if APP_USE_LVGL_UI
 #define UI_THREAD_STACK_SIZE 8192
 #define UI_THREAD_PRIORITY 5
+#define KEY_CARD_COUNT 4
 #endif
 
 #if APP_ENABLE_LED_STRIP
@@ -66,6 +67,9 @@ static K_THREAD_STACK_DEFINE(ui_thread_stack, UI_THREAD_STACK_SIZE);
 static lv_style_t screen_style;
 static lv_style_t key_label_style;
 static lv_style_t info_label_style;
+static lv_style_t badge_style;
+static lv_style_t key_card_style;
+static lv_style_t active_key_card_style;
 #endif
 
 #if APP_USE_LVGL_UI
@@ -89,36 +93,70 @@ static void init_ui_styles(void)
     lv_style_set_text_color(&info_label_style, lv_color_white());
     lv_style_set_text_align(&info_label_style, LV_TEXT_ALIGN_CENTER);
     lv_style_set_text_letter_space(&info_label_style, 1);
+
+    lv_style_init(&badge_style);
+    lv_style_set_bg_color(&badge_style, lv_color_hex(0x202020));
+    lv_style_set_bg_opa(&badge_style, LV_OPA_70);
+    lv_style_set_radius(&badge_style, 8);
+    lv_style_set_pad_left(&badge_style, 12);
+    lv_style_set_pad_right(&badge_style, 12);
+    lv_style_set_pad_top(&badge_style, 6);
+    lv_style_set_pad_bottom(&badge_style, 6);
+
+    lv_style_init(&key_card_style);
+    lv_style_set_bg_color(&key_card_style, lv_color_hex(0x202020));
+    lv_style_set_bg_opa(&key_card_style, LV_OPA_60);
+    lv_style_set_border_color(&key_card_style, lv_color_hex(0x606060));
+    lv_style_set_border_width(&key_card_style, 1);
+    lv_style_set_radius(&key_card_style, 6);
+
+    lv_style_init(&active_key_card_style);
+    lv_style_set_bg_color(&active_key_card_style, lv_color_hex(0xffffff));
+    lv_style_set_bg_opa(&active_key_card_style, LV_OPA_30);
+    lv_style_set_border_color(&active_key_card_style, lv_color_white());
+    lv_style_set_border_width(&active_key_card_style, 2);
 }
 
 static void set_label_for_key(lv_obj_t *key_label,
-                              lv_obj_t *status_label,
+                              lv_obj_t *key_badge_label,
+                              lv_obj_t *color_badge_label,
+                              lv_obj_t *key_cards[KEY_CARD_COUNT],
                               uint32_t key_code)
 {
     const char *text = "버튼0";
-    const char *status = "KEY1 / RED";
+    const char *key_text = "KEY1";
+    const char *color_text = "RED";
     lv_color_t bg_color = lv_color_hex(0xcc2020);
+    size_t selected_index;
 
     switch (key_code) {
     case INPUT_KEY_1:
         text = "버튼0";
-        status = "KEY1 / RED";
+        key_text = "KEY1";
+        color_text = "RED";
         bg_color = lv_color_hex(0xcc2020);
+        selected_index = 0;
         break;
     case INPUT_KEY_2:
         text = "버튼1";
-        status = "KEY2 / GREEN";
+        key_text = "KEY2";
+        color_text = "GREEN";
         bg_color = lv_color_hex(0x209c3a);
+        selected_index = 1;
         break;
     case INPUT_KEY_3:
         text = "버튼2";
-        status = "KEY3 / BLUE";
+        key_text = "KEY3";
+        color_text = "BLUE";
         bg_color = lv_color_hex(0x1d4ed8);
+        selected_index = 2;
         break;
     case INPUT_KEY_4:
         text = "버튼3";
-        status = "KEY4 / WHITE";
+        key_text = "KEY4";
+        color_text = "WHITE";
         bg_color = lv_color_black();
+        selected_index = 3;
         break;
     default:
         return;
@@ -130,8 +168,13 @@ static void set_label_for_key(lv_obj_t *key_label,
     lv_label_set_text(key_label, text);
     lv_obj_center(key_label);
 
-    lv_label_set_text(status_label, status);
-    lv_obj_align(status_label, LV_ALIGN_BOTTOM_MID, 0, -12);
+    lv_label_set_text(key_badge_label, key_text);
+    lv_label_set_text(color_badge_label, color_text);
+
+    for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
+        lv_obj_remove_style(key_cards[i], &active_key_card_style, LV_PART_MAIN);
+    }
+    lv_obj_add_style(key_cards[selected_index], &active_key_card_style, LV_PART_MAIN);
 }
 
 static void ui_thread(void *p1, void *p2, void *p3)
@@ -145,16 +188,92 @@ static void ui_thread(void *p1, void *p2, void *p3)
                                                        48,
                                                        LV_FONT_KERNING_NONE,
                                                        8);
-    lv_obj_t *title_label = lv_label_create(lv_screen_active());
-    lv_obj_t *key_label = lv_label_create(lv_screen_active());
-    lv_obj_t *status_label = lv_label_create(lv_screen_active());
+    lv_obj_t *screen = lv_screen_active();
+    lv_obj_t *header = lv_obj_create(screen);
+    lv_obj_t *content = lv_obj_create(screen);
+    lv_obj_t *button_row = lv_obj_create(content);
+    lv_obj_t *footer = lv_obj_create(screen);
+    lv_obj_t *title_label;
+    lv_obj_t *key_label;
+    lv_obj_t *key_cards[KEY_CARD_COUNT];
+    lv_obj_t *key_card_labels[KEY_CARD_COUNT];
+    lv_obj_t *key_badge;
+    lv_obj_t *color_badge;
+    lv_obj_t *key_badge_label;
+    lv_obj_t *color_badge_label;
+    static const char *const key_card_texts[KEY_CARD_COUNT] = {
+        "KEY1",
+        "KEY2",
+        "KEY3",
+        "KEY4"
+    };
     atomic_val_t displayed_key = -1;
 
     init_ui_styles();
-    lv_obj_add_style(lv_screen_active(), &screen_style, LV_PART_MAIN);
+    lv_obj_add_style(screen, &screen_style, LV_PART_MAIN);
+
+    lv_obj_remove_style_all(header);
+    lv_obj_remove_style_all(content);
+    lv_obj_remove_style_all(button_row);
+    lv_obj_remove_style_all(footer);
+
+    lv_obj_set_size(header, LV_PCT(100), 48);
+    lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
+
+    lv_obj_set_size(content, LV_PCT(100), 220);
+    lv_obj_align(content, LV_ALIGN_CENTER, 0, 0);
+
+    lv_obj_set_size(button_row, LV_PCT(100), 38);
+    lv_obj_align(button_row, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_set_flex_flow(button_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(button_row,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(button_row, 6, LV_PART_MAIN);
+
+    lv_obj_set_size(footer, LV_PCT(100), 44);
+    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_flex_flow(footer, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(footer,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(footer, 8, LV_PART_MAIN);
+
+    title_label = lv_label_create(header);
+    key_label = lv_label_create(content);
+    for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
+        key_cards[i] = lv_obj_create(button_row);
+        key_card_labels[i] = lv_label_create(key_cards[i]);
+
+        lv_obj_remove_style_all(key_cards[i]);
+        lv_obj_add_style(key_cards[i], &key_card_style, LV_PART_MAIN);
+        lv_obj_set_size(key_cards[i], 48, 32);
+    }
+    key_badge = lv_obj_create(footer);
+    color_badge = lv_obj_create(footer);
+    key_badge_label = lv_label_create(key_badge);
+    color_badge_label = lv_label_create(color_badge);
+
+    lv_obj_remove_style_all(key_badge);
+    lv_obj_remove_style_all(color_badge);
+    lv_obj_add_style(key_badge, &badge_style, LV_PART_MAIN);
+    lv_obj_add_style(color_badge, &badge_style, LV_PART_MAIN);
+    lv_obj_set_size(key_badge, 82, 32);
+    lv_obj_set_size(color_badge, 92, 32);
+
     lv_obj_add_style(title_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(key_label, &key_label_style, LV_PART_MAIN);
-    lv_obj_add_style(status_label, &info_label_style, LV_PART_MAIN);
+    for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
+        lv_obj_add_style(key_card_labels[i], &info_label_style, LV_PART_MAIN);
+        lv_label_set_text(key_card_labels[i], key_card_texts[i]);
+        lv_obj_center(key_card_labels[i]);
+    }
+    lv_obj_add_style(key_badge_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(color_badge_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_center(key_badge_label);
+    lv_obj_center(color_badge_label);
 
     if (nanum_font != NULL) {
         lv_obj_set_style_text_font(key_label, nanum_font, LV_PART_MAIN);
@@ -164,13 +283,17 @@ static void ui_thread(void *p1, void *p2, void *p3)
     }
 
     lv_label_set_text(title_label, "Button Test");
-    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 12);
+    lv_obj_center(title_label);
 
     while (1) {
         atomic_val_t key_code = atomic_get(&pending_key);
 
         if (key_code != displayed_key) {
-            set_label_for_key(key_label, status_label, (uint32_t)key_code);
+            set_label_for_key(key_label,
+                              key_badge_label,
+                              color_badge_label,
+                              key_cards,
+                              (uint32_t)key_code);
             displayed_key = key_code;
         }
 
