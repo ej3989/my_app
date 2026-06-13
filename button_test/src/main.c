@@ -63,6 +63,9 @@ static struct led_rgb pixels[4] = {
 static atomic_t pending_key = ATOMIC_INIT(INPUT_KEY_1);
 static struct k_thread ui_thread_data;
 static K_THREAD_STACK_DEFINE(ui_thread_stack, UI_THREAD_STACK_SIZE);
+static lv_style_t screen_style;
+static lv_style_t key_label_style;
+static lv_style_t info_label_style;
 #endif
 
 #if APP_USE_LVGL_UI
@@ -71,37 +74,64 @@ extern const unsigned int nanum_gothic_regular_ttf_len;
 #endif
 
 #if APP_USE_LVGL_UI
-static void set_label_for_key(lv_obj_t *label, uint32_t key_code)
+static void init_ui_styles(void)
+{
+    lv_style_init(&screen_style);
+    lv_style_set_bg_color(&screen_style, lv_color_hex(0xcc2020));
+    lv_style_set_bg_opa(&screen_style, LV_OPA_COVER);
+
+    lv_style_init(&key_label_style);
+    lv_style_set_text_color(&key_label_style, lv_color_white());
+    lv_style_set_text_align(&key_label_style, LV_TEXT_ALIGN_CENTER);
+    lv_style_set_text_letter_space(&key_label_style, 1);
+
+    lv_style_init(&info_label_style);
+    lv_style_set_text_color(&info_label_style, lv_color_white());
+    lv_style_set_text_align(&info_label_style, LV_TEXT_ALIGN_CENTER);
+    lv_style_set_text_letter_space(&info_label_style, 1);
+}
+
+static void set_label_for_key(lv_obj_t *key_label,
+                              lv_obj_t *status_label,
+                              uint32_t key_code)
 {
     const char *text = "버튼0";
+    const char *status = "KEY1 / RED";
     lv_color_t bg_color = lv_color_hex(0xcc2020);
-    lv_color_t text_color = lv_color_white();
 
     switch (key_code) {
     case INPUT_KEY_1:
         text = "버튼0";
+        status = "KEY1 / RED";
         bg_color = lv_color_hex(0xcc2020);
         break;
     case INPUT_KEY_2:
         text = "버튼1";
+        status = "KEY2 / GREEN";
         bg_color = lv_color_hex(0x209c3a);
         break;
     case INPUT_KEY_3:
         text = "버튼2";
+        status = "KEY3 / BLUE";
         bg_color = lv_color_hex(0x1d4ed8);
         break;
     case INPUT_KEY_4:
         text = "버튼3";
+        status = "KEY4 / WHITE";
         bg_color = lv_color_black();
         break;
     default:
         return;
     }
 
-    lv_obj_set_style_bg_color(lv_screen_active(), bg_color, LV_PART_MAIN);
-    lv_obj_set_style_text_color(label, text_color, LV_PART_MAIN);
-    lv_label_set_text(label, text);
-    lv_obj_center(label);
+    lv_style_set_bg_color(&screen_style, bg_color);
+    lv_obj_report_style_change(&screen_style);
+
+    lv_label_set_text(key_label, text);
+    lv_obj_center(key_label);
+
+    lv_label_set_text(status_label, status);
+    lv_obj_align(status_label, LV_ALIGN_BOTTOM_MID, 0, -12);
 }
 
 static void ui_thread(void *p1, void *p2, void *p3)
@@ -112,11 +142,19 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
     lv_font_t *nanum_font = lv_tiny_ttf_create_data_ex(nanum_gothic_regular_ttf,
                                                        nanum_gothic_regular_ttf_len,
-                                                       36,
+                                                       48,
                                                        LV_FONT_KERNING_NONE,
                                                        8);
+    lv_obj_t *title_label = lv_label_create(lv_screen_active());
     lv_obj_t *key_label = lv_label_create(lv_screen_active());
+    lv_obj_t *status_label = lv_label_create(lv_screen_active());
     atomic_val_t displayed_key = -1;
+
+    init_ui_styles();
+    lv_obj_add_style(lv_screen_active(), &screen_style, LV_PART_MAIN);
+    lv_obj_add_style(title_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(key_label, &key_label_style, LV_PART_MAIN);
+    lv_obj_add_style(status_label, &info_label_style, LV_PART_MAIN);
 
     if (nanum_font != NULL) {
         lv_obj_set_style_text_font(key_label, nanum_font, LV_PART_MAIN);
@@ -125,14 +163,14 @@ static void ui_thread(void *p1, void *p2, void *p3)
         lv_obj_set_style_text_font(key_label, &lv_font_montserrat_48, LV_PART_MAIN);
     }
 
-    lv_obj_set_style_text_letter_space(key_label, 1, LV_PART_MAIN);
-    lv_obj_set_style_text_align(key_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_label_set_text(title_label, "Button Test");
+    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 12);
 
     while (1) {
         atomic_val_t key_code = atomic_get(&pending_key);
 
         if (key_code != displayed_key) {
-            set_label_for_key(key_label, (uint32_t)key_code);
+            set_label_for_key(key_label, status_label, (uint32_t)key_code);
             displayed_key = key_code;
         }
 
