@@ -101,17 +101,7 @@
 };
 
 &spi3 {
-    status = "okay";
-    pinctrl-0 = <&spim3_default>;
-    pinctrl-names = "default";
-};
-
-&spim3_default {
-    group1 {
-        pinmux = <SPIM3_MISO_GPIO16>,
-            <SPIM3_SCLK_GPIO17>,
-            <SPIM3_CSEL_GPIO38>;
-    };
+    status = "disabled";
 };
 
 &i2s0_default {
