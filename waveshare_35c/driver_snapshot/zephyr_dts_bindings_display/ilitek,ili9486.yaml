@@ -1,0 +1,87 @@
+# Copyright (c) 2026
+# SPDX-License-Identifier: Apache-2.0
+
+title: Ilitek ILI9486 display controller
+
+description: |
+  The Ilitek ILI9486 is a TFT-LCD controller commonly used on 320x480
+  SPI display modules.
+
+compatible: "ilitek,ili9486"
+
+include: ilitek,ili9xxx-common.yaml
+
+properties:
+  positive-gamma-control:
+    type: uint8-array
+    default: [
+      0x00,
+      0x03,
+      0x09,
+      0x08,
+      0x16,
+      0x0a,
+      0x3f,
+      0x78,
+      0x4c,
+      0x09,
+      0x0a,
+      0x08,
+      0x16,
+      0x1a,
+      0x0f
+    ]
+    description:
+      Positive gamma correction register value.
+
+  negative-gamma-control:
+    type: uint8-array
+    default: [
+      0x00,
+      0x16,
+      0x19,
+      0x03,
+      0x0f,
+      0x05,
+      0x32,
+      0x45,
+      0x46,
+      0x04,
+      0x0e,
+      0x0d,
+      0x35,
+      0x37,
+      0x0f
+    ]
+    description:
+      Negative gamma correction register value.
+
+  power-control-1:
+    type: uint8-array
+    default: [0x17, 0x15]
+    description:
+      Power control 1 register value.
+
+  power-control-2:
+    type: uint8-array
+    default: [0x41]
+    description:
+      Power control 2 register value.
+
+  vcom-control:
+    type: uint8-array
+    default: [0x00, 0x12, 0x80]
+    description:
+      VCOM control register value.
+
+  memory-access-control:
+    type: uint8-array
+    default: [0x48]
+    description:
+      Memory access control register value.
+
+  interface-pixel-format:
+    type: uint8-array
+    default: [0x66]
+    description:
+      Interface pixel format register value.

@@ -46,9 +46,9 @@ checking the serial touch logs.
 
 | Waveshare signal | Meaning | ESP32-S3 GPIO |
 | --- | --- | --- |
-| TP_SI | Touch SPI MOSI | GPIO11 |
-| TP_SCK | Touch SPI SCK | GPIO12 |
-| TP_SCL | Touch SPI MISO | GPIO13 |
+| TP_SI / T_DIN | Touch SPI MOSI | GPIO11 |
+| TP_SCK / T_CLK / T_SCL | Touch SPI SCK | GPIO12 |
+| TP_DO / T_DO / SDO | Touch SPI MISO | GPIO13 |
 | TP_CS | Touch chip select | GPIO16 |
 | TP_IRQ | Touch interrupt | GPIO17 |
 

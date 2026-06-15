@@ -1,9 +1,9 @@
 #include <inttypes.h>
 #include <stdbool.h>
 
-#define APP_USE_LVGL_UI 0
+#define APP_USE_LVGL_UI 1
 #define APP_ENABLE_BUTTONS 1
-#define APP_ENABLE_TOUCH 0
+#define APP_ENABLE_TOUCH 1
 #define APP_ENABLE_LCD 1
 #define APP_ENABLE_LED_STRIP 1
 
@@ -91,6 +91,7 @@ static lv_style_t info_label_style;
 static lv_style_t badge_style;
 static lv_style_t key_card_style;
 static lv_style_t active_key_card_style;
+static lv_style_t touch_target_style;
 static lv_obj_t *main_screen;
 static lv_obj_t *detail_screen;
 static lv_obj_t *detail_key_label;
@@ -165,6 +166,42 @@ static void init_ui_styles(void)
     lv_style_set_bg_opa(&active_key_card_style, LV_OPA_30);
     lv_style_set_border_color(&active_key_card_style, lv_color_white());
     lv_style_set_border_width(&active_key_card_style, 2);
+
+    lv_style_init(&touch_target_style);
+    lv_style_set_text_color(&touch_target_style, lv_color_white());
+    lv_style_set_text_align(&touch_target_style, LV_TEXT_ALIGN_CENTER);
+    lv_style_set_bg_color(&touch_target_style, lv_color_hex(0x101010));
+    lv_style_set_bg_opa(&touch_target_style, LV_OPA_80);
+    lv_style_set_border_color(&touch_target_style, lv_color_white());
+    lv_style_set_border_width(&touch_target_style, 2);
+    lv_style_set_radius(&touch_target_style, 4);
+    lv_style_set_pad_left(&touch_target_style, 4);
+    lv_style_set_pad_right(&touch_target_style, 4);
+    lv_style_set_pad_top(&touch_target_style, 4);
+    lv_style_set_pad_bottom(&touch_target_style, 4);
+}
+
+static void add_touch_target(lv_obj_t *parent,
+                             const char *text,
+                             lv_align_t align,
+                             int32_t x_ofs,
+                             int32_t y_ofs)
+{
+    lv_obj_t *label = lv_label_create(parent);
+
+    lv_obj_add_style(label, &touch_target_style, LV_PART_MAIN);
+    lv_label_set_text(label, text);
+    lv_obj_set_size(label, 76, 42);
+    lv_obj_align(label, align, x_ofs, y_ofs);
+}
+
+static void add_touch_calibration_targets(lv_obj_t *parent)
+{
+    add_touch_target(parent, "TL\n20,20", LV_ALIGN_TOP_LEFT, 10, 10);
+    add_touch_target(parent, "TR\n460,20", LV_ALIGN_TOP_RIGHT, -10, 10);
+    add_touch_target(parent, "C\n240,160", LV_ALIGN_CENTER, 0, 0);
+    add_touch_target(parent, "BL\n20,300", LV_ALIGN_BOTTOM_LEFT, 10, -10);
+    add_touch_target(parent, "BR\n460,300", LV_ALIGN_BOTTOM_RIGHT, -10, -10);
 }
 
 static bool get_key_info(uint32_t key_code,
@@ -422,6 +459,7 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
     lv_label_set_text(title_label, "Waveshare 3.5C");
     lv_obj_center(title_label);
+    add_touch_calibration_targets(main_screen);
 
     detail_title_label = lv_label_create(detail_screen);
     detail_key_label = lv_label_create(detail_screen);
@@ -614,9 +652,15 @@ static int write_lcd_solid_color(const struct display_capabilities *caps,
 static void write_lcd_solid_color_sequence(const struct display_capabilities *caps)
 {
     write_lcd_solid_color(caps, 0x0000, "black");
-    k_sleep(K_MSEC(2000));
+    k_sleep(K_MSEC(700));
     write_lcd_solid_color(caps, 0xff0000, "red");
-    k_sleep(K_MSEC(2000));
+    k_sleep(K_MSEC(700));
+    write_lcd_solid_color(caps, 0x00ff00, "green");
+    k_sleep(K_MSEC(700));
+    write_lcd_solid_color(caps, 0x0000ff, "blue");
+    k_sleep(K_MSEC(700));
+    write_lcd_solid_color(caps, 0xffffff, "white");
+    k_sleep(K_MSEC(700));
 }
 
 static void write_lcd_test_pattern(const struct display_capabilities *caps)
@@ -825,8 +869,12 @@ int main(void)
     ret = display_blanking_off(DISPLAY_DEV);
     printk("display blanking off result: %d\n", ret);
     print_lcd_gpio_states("after blanking off");
+#if !APP_USE_LVGL_UI
     write_lcd_solid_color_sequence(&caps);
     print_lcd_gpio_states("after solid color sequence");
+    write_lcd_test_pattern(&caps);
+    print_lcd_gpio_states("after color bar test");
+#endif
     k_sleep(K_MSEC(1000));
 #endif
 

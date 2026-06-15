@@ -54,11 +54,11 @@
      *   RST     -> GPIO8
      *
      * Touch wiring on the same SPI bus:
-     *   TP_SI   -> GPIO11
-     *   TP_SCK  -> GPIO12
-     *   TP_SCL  -> GPIO13
-     *   TP_CS   -> GPIO16
-     *   TP_IRQ  -> GPIO17
+     *   TP_SI / T_DIN       -> GPIO11
+     *   TP_SCK / T_CLK/SCL  -> GPIO12
+     *   TP_DO / T_DO / SDO  -> GPIO13
+     *   TP_CS               -> GPIO16
+     *   TP_IRQ              -> GPIO17
      */
     lcd_bl: lcd_bl {
         compatible = "gpio-leds";
@@ -93,7 +93,7 @@
              * bring-up speed conservative; raise it only after the direct
              * display_write test is stable.
              */
-            mipi-max-frequency = <10000000>;
+            mipi-max-frequency = <40000000>;
             pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
             interface-pixel-format = [55];
 
@@ -113,7 +113,7 @@
         compatible = "zephyr,lvgl-pointer-input";
         input = <&touch0>;
         display = <&lcd0>;
-        status = "disabled";
+        status = "okay";
     };
 };
 
@@ -121,24 +121,27 @@
     status = "okay";
     #address-cells = <1>;
     #size-cells = <0>;
-    cs-gpios = <&gpio0 10 GPIO_ACTIVE_LOW>;
+    cs-gpios = <&gpio0 10 GPIO_ACTIVE_LOW>,
+               <&gpio0 16 GPIO_ACTIVE_LOW>;
     pinctrl-0 = <&spim2_lcd_touch>;
     pinctrl-names = "default";
 
     touch0: xpt2046@1 {
         compatible = "xptek,xpt2046";
         reg = <1>;
-        spi-max-frequency = <2000000>;
+        spi-max-frequency = <500000>;
         int-gpios = <&gpio0 17 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
         touchscreen-size-x = <480>;
         touchscreen-size-y = <320>;
-        min-x = <200>;
-        max-x = <3900>;
-        min-y = <200>;
-        max-y = <3900>;
-        z-threshold = <1000>;
+        min-x = <420>;
+        max-x = <3710>;
+        min-y = <370>;
+        max-y = <3750>;
+        z-threshold = <300>;
         reads = <4>;
-        status = "disabled";
+        swap-xy;
+        invert-x;
+        status = "okay";
     };
 };
 
