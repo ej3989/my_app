@@ -40,7 +40,6 @@
 #if APP_ENABLE_TOUCH
 #define TOUCH_NODE DT_CHOSEN(zephyr_touch)
 #define TOUCH_DEV DEVICE_DT_GET(TOUCH_NODE)
-#define TOUCH_IRQ_GPIO GPIO_DT_SPEC_GET(TOUCH_NODE, int_gpios)
 #endif
 
 #if APP_ENABLE_LED_STRIP
@@ -67,11 +66,6 @@
 #define KEY_CARD_COUNT 4
 #endif
 
-#if APP_ENABLE_TOUCH
-#define TOUCH_DIAG_THREAD_STACK_SIZE 2048
-#define TOUCH_DIAG_THREAD_PRIORITY 6
-#endif
-
 #if APP_ENABLE_LED_STRIP
 static struct led_rgb pixels[4] = {
     { .r = 10, .g = 0, .b = 0 },
@@ -91,17 +85,10 @@ static lv_style_t info_label_style;
 static lv_style_t badge_style;
 static lv_style_t key_card_style;
 static lv_style_t active_key_card_style;
-static lv_style_t touch_target_style;
 static lv_obj_t *main_screen;
 static lv_obj_t *detail_screen;
 static lv_obj_t *detail_key_label;
 static lv_obj_t *detail_color_label;
-#endif
-
-#if APP_ENABLE_TOUCH
-static const struct gpio_dt_spec touch_irq_gpio = TOUCH_IRQ_GPIO;
-static struct k_thread touch_diag_thread_data;
-static K_THREAD_STACK_DEFINE(touch_diag_thread_stack, TOUCH_DIAG_THREAD_STACK_SIZE);
 #endif
 
 #if APP_USE_LVGL_UI
@@ -166,42 +153,6 @@ static void init_ui_styles(void)
     lv_style_set_bg_opa(&active_key_card_style, LV_OPA_30);
     lv_style_set_border_color(&active_key_card_style, lv_color_white());
     lv_style_set_border_width(&active_key_card_style, 2);
-
-    lv_style_init(&touch_target_style);
-    lv_style_set_text_color(&touch_target_style, lv_color_white());
-    lv_style_set_text_align(&touch_target_style, LV_TEXT_ALIGN_CENTER);
-    lv_style_set_bg_color(&touch_target_style, lv_color_hex(0x101010));
-    lv_style_set_bg_opa(&touch_target_style, LV_OPA_80);
-    lv_style_set_border_color(&touch_target_style, lv_color_white());
-    lv_style_set_border_width(&touch_target_style, 2);
-    lv_style_set_radius(&touch_target_style, 4);
-    lv_style_set_pad_left(&touch_target_style, 4);
-    lv_style_set_pad_right(&touch_target_style, 4);
-    lv_style_set_pad_top(&touch_target_style, 4);
-    lv_style_set_pad_bottom(&touch_target_style, 4);
-}
-
-static void add_touch_target(lv_obj_t *parent,
-                             const char *text,
-                             lv_align_t align,
-                             int32_t x_ofs,
-                             int32_t y_ofs)
-{
-    lv_obj_t *label = lv_label_create(parent);
-
-    lv_obj_add_style(label, &touch_target_style, LV_PART_MAIN);
-    lv_label_set_text(label, text);
-    lv_obj_set_size(label, 76, 42);
-    lv_obj_align(label, align, x_ofs, y_ofs);
-}
-
-static void add_touch_calibration_targets(lv_obj_t *parent)
-{
-    add_touch_target(parent, "TL\n20,20", LV_ALIGN_TOP_LEFT, 10, 10);
-    add_touch_target(parent, "TR\n460,20", LV_ALIGN_TOP_RIGHT, -10, 10);
-    add_touch_target(parent, "C\n240,160", LV_ALIGN_CENTER, 0, 0);
-    add_touch_target(parent, "BL\n20,300", LV_ALIGN_BOTTOM_LEFT, 10, -10);
-    add_touch_target(parent, "BR\n460,300", LV_ALIGN_BOTTOM_RIGHT, -10, -10);
 }
 
 static bool get_key_info(uint32_t key_code,
@@ -312,7 +263,7 @@ static void key_card_event_cb(lv_event_t *event)
 {
     uint32_t key_code;
 
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+    if (lv_event_get_code(event) != LV_EVENT_PRESSED) {
         return;
     }
 
@@ -392,14 +343,14 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_set_size(content, LV_PCT(100), 220);
     lv_obj_align(content, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_set_size(button_row, LV_PCT(100), 38);
-    lv_obj_align(button_row, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_set_size(button_row, LV_PCT(100), 64);
+    lv_obj_align(button_row, LV_ALIGN_BOTTOM_MID, 0, -2);
     lv_obj_set_flex_flow(button_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(button_row,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER,
                           LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(button_row, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_gap(button_row, 8, LV_PART_MAIN);
 
     lv_obj_set_size(footer, LV_PCT(100), 44);
     lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -418,11 +369,11 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
         lv_obj_remove_style_all(key_cards[i]);
         lv_obj_add_style(key_cards[i], &key_card_style, LV_PART_MAIN);
-        lv_obj_set_size(key_cards[i], 48, 32);
+        lv_obj_set_size(key_cards[i], 92, 54);
         lv_obj_add_flag(key_cards[i], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(key_cards[i],
                             key_card_event_cb,
-                            LV_EVENT_CLICKED,
+                            LV_EVENT_PRESSED,
                             (void *)(uintptr_t)key_card_codes[i]);
     }
     key_badge = lv_obj_create(footer);
@@ -442,6 +393,7 @@ static void ui_thread(void *p1, void *p2, void *p3)
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         lv_obj_add_style(key_card_labels[i], &info_label_style, LV_PART_MAIN);
         lv_label_set_text(key_card_labels[i], key_card_texts[i]);
+        lv_obj_add_flag(key_card_labels[i], LV_OBJ_FLAG_EVENT_BUBBLE);
         lv_obj_center(key_card_labels[i]);
     }
     lv_obj_add_style(key_badge_label, &info_label_style, LV_PART_MAIN);
@@ -459,7 +411,6 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
     lv_label_set_text(title_label, "Waveshare 3.5C");
     lv_obj_center(title_label);
-    add_touch_calibration_targets(main_screen);
 
     detail_title_label = lv_label_create(detail_screen);
     detail_key_label = lv_label_create(detail_screen);
@@ -712,31 +663,6 @@ static void write_lcd_test_pattern(const struct display_capabilities *caps)
 }
 #endif
 
-#if APP_ENABLE_TOUCH
-static void touch_diag_thread(void *p1, void *p2, void *p3)
-{
-    int last_raw = -1;
-    int last_logical = -1;
-
-    ARG_UNUSED(p1);
-    ARG_UNUSED(p2);
-    ARG_UNUSED(p3);
-
-    while (1) {
-        int raw = gpio_pin_get_raw(touch_irq_gpio.port, touch_irq_gpio.pin);
-        int logical = gpio_pin_get_dt(&touch_irq_gpio);
-
-        if (raw != last_raw || logical != last_logical) {
-            printk("touch IRQ state raw=%d logical=%d\n", raw, logical);
-            last_raw = raw;
-            last_logical = logical;
-        }
-
-        k_sleep(K_MSEC(200));
-    }
-}
-#endif
-
 #if APP_ENABLE_BUTTONS
 static void button_input_cb(struct input_event *evt, void *user_data)
 {
@@ -767,29 +693,6 @@ static void button_input_cb(struct input_event *evt, void *user_data)
 INPUT_CALLBACK_DEFINE(BUTTONS_DEV, button_input_cb, NULL);
 #endif
 
-#if APP_ENABLE_TOUCH
-static void touch_input_cb(struct input_event *evt, void *user_data)
-{
-    ARG_UNUSED(user_data);
-
-    if (evt->type != INPUT_EV_ABS && evt->type != INPUT_EV_KEY) {
-        return;
-    }
-
-    if (evt->type == INPUT_EV_ABS) {
-        if (evt->code == INPUT_ABS_X) {
-            printk("touch x=%d\n", evt->value);
-        } else if (evt->code == INPUT_ABS_Y) {
-            printk("touch y=%d\n", evt->value);
-        }
-    } else if (evt->code == INPUT_BTN_TOUCH) {
-        printk("touch %s\n", evt->value ? "pressed" : "released");
-    }
-}
-
-INPUT_CALLBACK_DEFINE(TOUCH_DEV, touch_input_cb, NULL);
-#endif
-
 int main(void)
 {
 #if APP_USE_LVGL_UI || APP_ENABLE_LCD
@@ -810,10 +713,6 @@ int main(void)
         return 0;
     }
     printk("Touch device is ready: %s\n", TOUCH_DEV->name);
-    if (!gpio_is_ready_dt(&touch_irq_gpio)) {
-        printk("Touch IRQ GPIO is not ready\n");
-        return 0;
-    }
 #endif
 #if APP_ENABLE_LED_STRIP
     if (!device_is_ready(STRIP_DEV)) {
@@ -895,21 +794,6 @@ int main(void)
                     0,
                     K_NO_WAIT);
     printk("LVGL UI thread create OK\n");
-#endif
-
-#if APP_ENABLE_TOUCH
-    printk("touch IRQ diagnostic thread create start\n");
-    k_thread_create(&touch_diag_thread_data,
-                    touch_diag_thread_stack,
-                    K_THREAD_STACK_SIZEOF(touch_diag_thread_stack),
-                    touch_diag_thread,
-                    NULL,
-                    NULL,
-                    NULL,
-                    TOUCH_DIAG_THREAD_PRIORITY,
-                    0,
-                    K_NO_WAIT);
-    printk("touch IRQ diagnostic thread create OK\n");
 #endif
 
 #if APP_ENABLE_BUTTONS

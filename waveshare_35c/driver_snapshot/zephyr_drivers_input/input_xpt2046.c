@@ -183,7 +183,6 @@ static void xpt2046_work_handler(struct k_work *kw)
 	 * releasing seem to cause just random noise
 	 */
 	if (pressed) {
-		printk("xpt2046 raw x=%u y=%u z=%u -> x=%d y=%d\n", meas.x, meas.y, meas.z, x, y);
 		LOG_DBG("raw: x=%4u y=%4u ==> x=%4d y=%4d", meas.x, meas.y, x, y);
 
 		input_report_abs(data->dev, INPUT_ABS_X, x, false, K_FOREVER);
