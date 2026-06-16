@@ -22,16 +22,20 @@ These files contain the build/Kconfig/instance hookup for the new driver:
 The XPT2046 input driver is not new, but this project uses a patched copy:
 
 - `zephyr_drivers_input/input_xpt2046.c`
+- `zephyr_dts_bindings_input/xptek,xpt2046.yaml`
 
 The patch clamps scaled touch coordinates to the configured display range. This
 prevents values such as `x=505`, `y=336` from being reported to LVGL on a
-`480x320` screen.
+`480x320` screen. It also adds `swap-xy`, `invert-x`, and `invert-y` devicetree
+properties so each board can align raw XPT2046 readings before Zephyr's LVGL
+pointer input layer applies display rotation.
 
 To reuse this display support in another Zephyr tree, copy the files above back
 to the matching paths under `zephyr/`, then enable the display with a devicetree
 node using `compatible = "ilitek,ili9486"`. If LVGL touch input is enabled with
 XPT2046, also copy the patched `input_xpt2046.c` to
-`zephyr/drivers/input/input_xpt2046.c`.
+`zephyr/drivers/input/input_xpt2046.c` and the patched binding to
+`zephyr/dts/bindings/input/xptek,xpt2046.yaml`.
 
 ## Known-good app overlay settings
 
@@ -39,13 +43,24 @@ The working `EJ_APP/waveshare_35c` overlay uses:
 
 ```dts
 xfr-min-bits = "MIPI_DBI_SPI_XFR_16BIT";
-mipi-max-frequency = <1000000>;
+mipi-max-frequency = <40000000>;
 pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
 interface-pixel-format = [55];
 width = <320>;
 height = <480>;
 rotation = <90>;
 h-mirror;
+```
+
+For XPT2046 touch with `zephyr,lvgl-pointer-input`, keep the touch controller in
+the panel's native `320x480` coordinate space and let the LVGL pointer layer
+apply the display rotation:
+
+```dts
+touchscreen-size-x = <320>;
+touchscreen-size-y = <480>;
+invert-x;
+invert-y;
 ```
 
 Do not enable `mipi-hold-cs` for the current ESP32-S3 wiring. It caused the

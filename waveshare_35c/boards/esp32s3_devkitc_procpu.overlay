@@ -113,6 +113,11 @@
         compatible = "zephyr,lvgl-pointer-input";
         input = <&touch0>;
         display = <&lcd0>;
+        /*
+         * The LVGL pointer layer rotates touch coordinates according to the
+         * display orientation. Keep the XPT2046 driver in the panel's native
+         * 320x480 coordinate space and let this layer apply rotation = <90>.
+         */
         status = "okay";
     };
 };
@@ -131,16 +136,16 @@
         reg = <1>;
         spi-max-frequency = <500000>;
         int-gpios = <&gpio0 17 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
-        touchscreen-size-x = <480>;
-        touchscreen-size-y = <320>;
+        touchscreen-size-x = <320>;
+        touchscreen-size-y = <480>;
         min-x = <420>;
         max-x = <3710>;
         min-y = <370>;
         max-y = <3750>;
         z-threshold = <300>;
         reads = <4>;
-        swap-xy;
         invert-x;
+        invert-y;
         status = "okay";
     };
 };

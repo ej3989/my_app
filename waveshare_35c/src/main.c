@@ -21,7 +21,6 @@
 #endif
 #if APP_ENABLE_BUTTONS || APP_ENABLE_TOUCH || APP_ENABLE_LCD
 #include <zephyr/dt-bindings/input/input-event-codes.h>
-#include <zephyr/drivers/gpio.h>
 #endif
 #if APP_ENABLE_BUTTONS || APP_ENABLE_TOUCH
 #include <zephyr/input/input.h>
@@ -52,10 +51,6 @@
 #define DISPLAY_DEV DEVICE_DT_GET(DISPLAY_NODE)
 #define LCD_BL_NODE DT_NODELABEL(lcd_bl)
 #define LCD_BL_DEV DEVICE_DT_GET(LCD_BL_NODE)
-#define LCD_DBI_NODE DT_NODELABEL(lcd_dbi)
-#define LCD_DC_GPIO GPIO_DT_SPEC_GET(LCD_DBI_NODE, dc_gpios)
-#define LCD_RST_GPIO GPIO_DT_SPEC_GET(LCD_DBI_NODE, reset_gpios)
-#define LCD_CS_GPIO GPIO_DT_SPEC_GET_BY_IDX(DT_NODELABEL(spi2), cs_gpios, 0)
 #endif
 
 #define RED_PIXEL_INDEX 0
@@ -84,7 +79,6 @@ static lv_style_t key_label_style;
 static lv_style_t info_label_style;
 static lv_style_t badge_style;
 static lv_style_t key_card_style;
-static lv_style_t active_key_card_style;
 static lv_obj_t *main_screen;
 static lv_obj_t *detail_screen;
 static lv_obj_t *detail_key_label;
@@ -97,20 +91,24 @@ extern const unsigned int nanum_gothic_regular_ttf_len;
 #endif
 
 #if APP_ENABLE_LED_STRIP || APP_USE_LVGL_UI
-static void select_key(uint32_t key_code)
+static void select_key(uint32_t key_code, bool update_led_strip, bool update_ui)
 {
     if (key_code < INPUT_KEY_1 || key_code > INPUT_KEY_4) {
         return;
     }
 
 #if APP_ENABLE_LED_STRIP
-    size_t pixel_index = key_code - INPUT_KEY_1;
+    if (update_led_strip) {
+        size_t pixel_index = key_code - INPUT_KEY_1;
 
-    led_strip_update_rgb(STRIP_DEV, &pixels[pixel_index], 1);
+        led_strip_update_rgb(STRIP_DEV, &pixels[pixel_index], 1);
+    }
 #endif
 
 #if APP_USE_LVGL_UI
-    atomic_set(&pending_key, key_code);
+    if (update_ui) {
+        atomic_set(&pending_key, key_code);
+    }
 #endif
 }
 #endif
@@ -147,12 +145,6 @@ static void init_ui_styles(void)
     lv_style_set_border_color(&key_card_style, lv_color_hex(0x606060));
     lv_style_set_border_width(&key_card_style, 1);
     lv_style_set_radius(&key_card_style, 6);
-
-    lv_style_init(&active_key_card_style);
-    lv_style_set_bg_color(&active_key_card_style, lv_color_hex(0xffffff));
-    lv_style_set_bg_opa(&active_key_card_style, LV_OPA_30);
-    lv_style_set_border_color(&active_key_card_style, lv_color_white());
-    lv_style_set_border_width(&active_key_card_style, 2);
 }
 
 static bool get_key_info(uint32_t key_code,
@@ -231,8 +223,8 @@ static void set_label_for_key(lv_obj_t *key_label,
         return;
     }
 
-    lv_style_set_bg_color(&screen_style, bg_color);
-    lv_obj_report_style_change(&screen_style);
+    lv_obj_set_style_bg_color(main_screen, bg_color, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(detail_screen, bg_color, LV_PART_MAIN);
 
     lv_label_set_text(key_label, text);
     lv_obj_center(key_label);
@@ -241,9 +233,16 @@ static void set_label_for_key(lv_obj_t *key_label,
     lv_label_set_text(color_badge_label, color_text);
 
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
-        lv_obj_remove_style(key_cards[i], &active_key_card_style, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(key_cards[i], lv_color_hex(0x202020), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(key_cards[i], LV_OPA_60, LV_PART_MAIN);
+        lv_obj_set_style_border_color(key_cards[i], lv_color_hex(0x606060), LV_PART_MAIN);
+        lv_obj_set_style_border_width(key_cards[i], 1, LV_PART_MAIN);
     }
-    lv_obj_add_style(key_cards[selected_index], &active_key_card_style, LV_PART_MAIN);
+
+    lv_obj_set_style_bg_color(key_cards[selected_index], lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(key_cards[selected_index], LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_border_color(key_cards[selected_index], lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_border_width(key_cards[selected_index], 2, LV_PART_MAIN);
 }
 
 static void back_card_event_cb(lv_event_t *event)
@@ -263,13 +262,12 @@ static void key_card_event_cb(lv_event_t *event)
 {
     uint32_t key_code;
 
-    if (lv_event_get_code(event) != LV_EVENT_PRESSED) {
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
         return;
     }
 
     key_code = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
-    printk("LVGL key card clicked: %" PRIu32 "\n", key_code);
-    select_key(key_code);
+    select_key(key_code, true, true);
     set_detail_screen_for_key(key_code);
     lv_screen_load_anim(detail_screen,
                         LV_SCR_LOAD_ANIM_MOVE_LEFT,
@@ -373,7 +371,7 @@ static void ui_thread(void *p1, void *p2, void *p3)
         lv_obj_add_flag(key_cards[i], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(key_cards[i],
                             key_card_event_cb,
-                            LV_EVENT_PRESSED,
+                            LV_EVENT_CLICKED,
                             (void *)(uintptr_t)key_card_codes[i]);
     }
     key_badge = lv_obj_create(footer);
@@ -467,202 +465,6 @@ static void ui_thread(void *p1, void *p2, void *p3)
 }
 #endif
 
-#if APP_ENABLE_LCD
-#define LCD_TEST_BLOCK_ROWS 16U
-
-static uint8_t test_line[480 * 3];
-static uint8_t test_block[480 * LCD_TEST_BLOCK_ROWS * 3];
-static const struct gpio_dt_spec lcd_dc_gpio = LCD_DC_GPIO;
-static const struct gpio_dt_spec lcd_rst_gpio = LCD_RST_GPIO;
-static const struct gpio_dt_spec lcd_cs_gpio = LCD_CS_GPIO;
-
-static void print_gpio_state(const char *name, const struct gpio_dt_spec *gpio)
-{
-    int logical = gpio_pin_get_dt(gpio);
-    int raw = gpio_pin_get_raw(gpio->port, gpio->pin);
-
-    printk("%s gpio port=%s pin=%u logical=%d raw=%d flags=0x%x\n",
-           name,
-           gpio->port->name,
-           gpio->pin,
-           logical,
-           raw,
-           gpio->dt_flags);
-}
-
-static void print_lcd_gpio_states(const char *stage)
-{
-    printk("LCD GPIO state: %s\n", stage);
-    print_gpio_state("LCD_DC", &lcd_dc_gpio);
-    print_gpio_state("LCD_RST", &lcd_rst_gpio);
-    print_gpio_state("LCD_CS", &lcd_cs_gpio);
-}
-
-static uint8_t lcd_bytes_per_pixel(const struct display_capabilities *caps)
-{
-    if (caps->current_pixel_format == PIXEL_FORMAT_RGB_888) {
-        return 3;
-    }
-
-    return 2;
-}
-
-static void fill_lcd_line(const struct display_capabilities *caps,
-                          uint32_t rgb,
-                          uint16_t width)
-{
-    uint8_t bytes_per_pixel = lcd_bytes_per_pixel(caps);
-    uint8_t red = (rgb >> 16) & 0xff;
-    uint8_t green = (rgb >> 8) & 0xff;
-    uint8_t blue = rgb & 0xff;
-
-    if (bytes_per_pixel == 3) {
-        for (size_t x = 0; x < width; x++) {
-            test_line[(x * 3U) + 0U] = red;
-            test_line[(x * 3U) + 1U] = green;
-            test_line[(x * 3U) + 2U] = blue;
-        }
-    } else {
-        uint16_t rgb565 = ((red & 0xf8) << 8) |
-                          ((green & 0xfc) << 3) |
-                          (blue >> 3);
-
-        for (size_t x = 0; x < width; x++) {
-            test_line[(x * 2U) + 0U] = rgb565 >> 8;
-            test_line[(x * 2U) + 1U] = rgb565 & 0xff;
-        }
-    }
-}
-
-static int write_lcd_solid_color(const struct display_capabilities *caps,
-                                 uint32_t color,
-                                 const char *name)
-{
-    uint16_t width = caps->x_resolution;
-    uint16_t height = caps->y_resolution;
-    uint8_t bytes_per_pixel = lcd_bytes_per_pixel(caps);
-    uint8_t red = (color >> 16) & 0xff;
-    uint8_t green = (color >> 8) & 0xff;
-    uint8_t blue = color & 0xff;
-    uint16_t block_rows = MIN(height, LCD_TEST_BLOCK_ROWS);
-
-    printk("LCD solid %s start: color=0x%06x bpp=%u\n",
-           name,
-           color,
-           bytes_per_pixel);
-
-    if ((width * block_rows * bytes_per_pixel) > ARRAY_SIZE(test_block)) {
-        printk("LCD solid %s skipped: width %u exceeds line buffer %zu\n",
-               name,
-               width,
-               ARRAY_SIZE(test_block));
-        return -EINVAL;
-    }
-
-    if (bytes_per_pixel == 3) {
-        for (size_t i = 0; i < (width * block_rows); i++) {
-            test_block[(i * 3U) + 0U] = red;
-            test_block[(i * 3U) + 1U] = green;
-            test_block[(i * 3U) + 2U] = blue;
-        }
-    } else {
-        uint16_t rgb565 = ((red & 0xf8) << 8) |
-                          ((green & 0xfc) << 3) |
-                          (blue >> 3);
-
-        for (size_t i = 0; i < (width * block_rows); i++) {
-            test_block[(i * 2U) + 0U] = rgb565 >> 8;
-            test_block[(i * 2U) + 1U] = rgb565 & 0xff;
-        }
-    }
-
-    for (uint16_t y = 0; y < height; y += block_rows) {
-        uint16_t rows = MIN(block_rows, height - y);
-        struct display_buffer_descriptor desc = {
-            .buf_size = width * rows * bytes_per_pixel,
-            .width = width,
-            .height = rows,
-            .pitch = width,
-        };
-        int ret = display_write(DISPLAY_DEV, 0, y, &desc, test_block);
-
-        if (ret < 0) {
-            printk("LCD solid %s failed at row %u rows %u: %d\n",
-                   name,
-                   y,
-                   rows,
-                   ret);
-            return ret;
-        }
-    }
-
-    printk("LCD solid %s OK\n", name);
-    return 0;
-}
-
-static void write_lcd_solid_color_sequence(const struct display_capabilities *caps)
-{
-    write_lcd_solid_color(caps, 0x0000, "black");
-    k_sleep(K_MSEC(700));
-    write_lcd_solid_color(caps, 0xff0000, "red");
-    k_sleep(K_MSEC(700));
-    write_lcd_solid_color(caps, 0x00ff00, "green");
-    k_sleep(K_MSEC(700));
-    write_lcd_solid_color(caps, 0x0000ff, "blue");
-    k_sleep(K_MSEC(700));
-    write_lcd_solid_color(caps, 0xffffff, "white");
-    k_sleep(K_MSEC(700));
-}
-
-static void write_lcd_test_pattern(const struct display_capabilities *caps)
-{
-    uint16_t width = caps->x_resolution;
-    uint16_t height = caps->y_resolution;
-    uint8_t bytes_per_pixel = lcd_bytes_per_pixel(caps);
-    struct display_buffer_descriptor desc = {
-        .buf_size = width * bytes_per_pixel,
-        .width = width,
-        .height = 1,
-        .pitch = width,
-    };
-    int ret;
-
-    printk("LCD direct display_write test start\n");
-
-    if ((width * bytes_per_pixel) > ARRAY_SIZE(test_line)) {
-        printk("LCD direct display_write skipped: width %u exceeds line buffer %zu\n",
-               width,
-               ARRAY_SIZE(test_line));
-        return;
-    }
-
-    for (uint16_t y = 0; y < height; y++) {
-        uint32_t color;
-        uint16_t band_height = height / 4U;
-
-        if (y < band_height) {
-            color = 0xff0000;
-        } else if (y < (band_height * 2U)) {
-            color = 0x00ff00;
-        } else if (y < (band_height * 3U)) {
-            color = 0x0000ff;
-        } else {
-            color = 0xffffff;
-        }
-
-        fill_lcd_line(caps, color, width);
-
-        ret = display_write(DISPLAY_DEV, 0, y, &desc, test_line);
-        if (ret < 0) {
-            printk("LCD direct display_write failed at row %u: %d\n", y, ret);
-            return;
-        }
-    }
-
-    printk("LCD direct display_write test OK\n");
-}
-#endif
-
 #if APP_ENABLE_BUTTONS
 static void button_input_cb(struct input_event *evt, void *user_data)
 {
@@ -685,7 +487,7 @@ static void button_input_cb(struct input_event *evt, void *user_data)
 
 #if APP_ENABLE_LED_STRIP || APP_USE_LVGL_UI
     if (evt->code >= INPUT_KEY_1 && evt->code <= INPUT_KEY_4) {
-        select_key(evt->code);
+        select_key(evt->code, true, true);
     }
 #endif
 }
@@ -763,17 +565,9 @@ int main(void)
     printk("LCD backlight on start\n");
     ret = led_on(LCD_BL_DEV, 0);
     printk("LCD backlight on result: %d\n", ret);
-    print_lcd_gpio_states("after backlight on");
     printk("display blanking off start\n");
     ret = display_blanking_off(DISPLAY_DEV);
     printk("display blanking off result: %d\n", ret);
-    print_lcd_gpio_states("after blanking off");
-#if !APP_USE_LVGL_UI
-    write_lcd_solid_color_sequence(&caps);
-    print_lcd_gpio_states("after solid color sequence");
-    write_lcd_test_pattern(&caps);
-    print_lcd_gpio_states("after color bar test");
-#endif
     k_sleep(K_MSEC(1000));
 #endif
 
