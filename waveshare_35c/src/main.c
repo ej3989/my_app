@@ -61,6 +61,14 @@
 #define KEY_CARD_COUNT 4
 #endif
 
+#if APP_ENABLE_LED_STRIP || APP_USE_LVGL_UI
+enum app_input_source {
+    APP_INPUT_SOURCE_BOOT,
+    APP_INPUT_SOURCE_GPIO,
+    APP_INPUT_SOURCE_TOUCH,
+};
+#endif
+
 #if APP_ENABLE_LED_STRIP
 static struct led_rgb pixels[4] = {
     { .r = 10, .g = 0, .b = 0 },
@@ -72,6 +80,9 @@ static struct led_rgb pixels[4] = {
 
 #if APP_USE_LVGL_UI
 static atomic_t pending_key = ATOMIC_INIT(INPUT_KEY_1);
+static atomic_t pending_source = ATOMIC_INIT(APP_INPUT_SOURCE_BOOT);
+static atomic_t pending_event_id;
+static atomic_t key_press_counts[KEY_CARD_COUNT];
 static struct k_thread ui_thread_data;
 static K_THREAD_STACK_DEFINE(ui_thread_stack, UI_THREAD_STACK_SIZE);
 static lv_style_t screen_style;
@@ -83,6 +94,8 @@ static lv_obj_t *main_screen;
 static lv_obj_t *detail_screen;
 static lv_obj_t *detail_key_label;
 static lv_obj_t *detail_color_label;
+static lv_obj_t *detail_source_label;
+static lv_obj_t *detail_count_label;
 #endif
 
 #if APP_USE_LVGL_UI
@@ -90,24 +103,40 @@ extern const unsigned char nanum_gothic_regular_ttf[];
 extern const unsigned int nanum_gothic_regular_ttf_len;
 #endif
 
-#if APP_ENABLE_LED_STRIP || APP_USE_LVGL_UI
-static void select_key(uint32_t key_code, bool update_led_strip, bool update_ui)
+static bool key_index_from_code(uint32_t key_code, size_t *selected_index)
 {
     if (key_code < INPUT_KEY_1 || key_code > INPUT_KEY_4) {
+        return false;
+    }
+
+    *selected_index = key_code - INPUT_KEY_1;
+    return true;
+}
+
+#if APP_ENABLE_LED_STRIP || APP_USE_LVGL_UI
+static void select_key(uint32_t key_code,
+                       enum app_input_source source,
+                       bool update_led_strip,
+                       bool update_ui)
+{
+    size_t selected_index;
+
+    if (!key_index_from_code(key_code, &selected_index)) {
         return;
     }
 
 #if APP_ENABLE_LED_STRIP
     if (update_led_strip) {
-        size_t pixel_index = key_code - INPUT_KEY_1;
-
-        led_strip_update_rgb(STRIP_DEV, &pixels[pixel_index], 1);
+        led_strip_update_rgb(STRIP_DEV, &pixels[selected_index], 1);
     }
 #endif
 
 #if APP_USE_LVGL_UI
     if (update_ui) {
+        atomic_inc(&key_press_counts[selected_index]);
+        atomic_set(&pending_source, source);
         atomic_set(&pending_key, key_code);
+        atomic_inc(&pending_event_id);
     }
 #endif
 }
@@ -207,17 +236,32 @@ static void set_detail_screen_for_key(uint32_t key_code)
     lv_label_set_text_fmt(detail_color_label, "COLOR: %s", color_text);
 }
 
+static const char *source_text(enum app_input_source source)
+{
+    switch (source) {
+    case APP_INPUT_SOURCE_GPIO:
+        return "GPIO";
+    case APP_INPUT_SOURCE_TOUCH:
+        return "TOUCH";
+    case APP_INPUT_SOURCE_BOOT:
+    default:
+        return "BOOT";
+    }
+}
+
 static void set_label_for_key(lv_obj_t *key_label,
                               lv_obj_t *key_badge_label,
                               lv_obj_t *color_badge_label,
                               lv_obj_t *key_cards[KEY_CARD_COUNT],
-                              uint32_t key_code)
+                              uint32_t key_code,
+                              enum app_input_source source)
 {
     const char *text;
     const char *key_text;
     const char *color_text;
     lv_color_t bg_color;
     size_t selected_index;
+    atomic_val_t count;
 
     if (!get_key_info(key_code, &text, &key_text, &color_text, &bg_color, &selected_index)) {
         return;
@@ -230,7 +274,9 @@ static void set_label_for_key(lv_obj_t *key_label,
     lv_obj_center(key_label);
 
     lv_label_set_text(key_badge_label, key_text);
-    lv_label_set_text(color_badge_label, color_text);
+    lv_label_set_text_fmt(color_badge_label, "%s %s",
+                          color_text,
+                          source_text(source));
 
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         lv_obj_set_style_bg_color(key_cards[i], lv_color_hex(0x202020), LV_PART_MAIN);
@@ -243,6 +289,10 @@ static void set_label_for_key(lv_obj_t *key_label,
     lv_obj_set_style_bg_opa(key_cards[selected_index], LV_OPA_30, LV_PART_MAIN);
     lv_obj_set_style_border_color(key_cards[selected_index], lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_width(key_cards[selected_index], 2, LV_PART_MAIN);
+
+    count = atomic_get(&key_press_counts[selected_index]);
+    lv_label_set_text_fmt(detail_source_label, "SOURCE: %s", source_text(source));
+    lv_label_set_text_fmt(detail_count_label, "COUNT: %" PRIiPTR, (intptr_t)count);
 }
 
 static void back_card_event_cb(lv_event_t *event)
@@ -267,7 +317,7 @@ static void key_card_event_cb(lv_event_t *event)
     }
 
     key_code = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
-    select_key(key_code, true, true);
+    select_key(key_code, APP_INPUT_SOURCE_TOUCH, true, true);
     set_detail_screen_for_key(key_code);
     lv_screen_load_anim(detail_screen,
                         LV_SCR_LOAD_ANIM_MOVE_LEFT,
@@ -314,7 +364,7 @@ static void ui_thread(void *p1, void *p2, void *p3)
         INPUT_KEY_3,
         INPUT_KEY_4
     };
-    atomic_val_t displayed_key = -1;
+    atomic_val_t displayed_event_id = -1;
 
     printk("LVGL UI thread start\n");
 
@@ -384,7 +434,7 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_add_style(key_badge, &badge_style, LV_PART_MAIN);
     lv_obj_add_style(color_badge, &badge_style, LV_PART_MAIN);
     lv_obj_set_size(key_badge, 82, 32);
-    lv_obj_set_size(color_badge, 92, 32);
+    lv_obj_set_size(color_badge, 150, 32);
 
     lv_obj_add_style(title_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(key_label, &key_label_style, LV_PART_MAIN);
@@ -413,6 +463,8 @@ static void ui_thread(void *p1, void *p2, void *p3)
     detail_title_label = lv_label_create(detail_screen);
     detail_key_label = lv_label_create(detail_screen);
     detail_color_label = lv_label_create(detail_screen);
+    detail_source_label = lv_label_create(detail_screen);
+    detail_count_label = lv_label_create(detail_screen);
     detail_back_card = lv_obj_create(detail_screen);
     detail_back_label = lv_label_create(detail_back_card);
 
@@ -420,6 +472,8 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_add_style(detail_title_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(detail_key_label, &key_label_style, LV_PART_MAIN);
     lv_obj_add_style(detail_color_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(detail_source_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(detail_count_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(detail_back_card, &badge_style, LV_PART_MAIN);
     lv_obj_add_style(detail_back_label, &info_label_style, LV_PART_MAIN);
 
@@ -433,6 +487,8 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_align(detail_title_label, LV_ALIGN_TOP_MID, 0, 16);
     lv_obj_center(detail_key_label);
     lv_obj_align(detail_color_label, LV_ALIGN_CENTER, 0, 56);
+    lv_obj_align(detail_source_label, LV_ALIGN_CENTER, 0, 88);
+    lv_obj_align(detail_count_label, LV_ALIGN_CENTER, 0, 120);
 
     lv_obj_set_size(detail_back_card, 96, 36);
     lv_obj_align(detail_back_card, LV_ALIGN_BOTTOM_MID, 0, -14);
@@ -448,15 +504,18 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
     while (1) {
         atomic_val_t key_code = atomic_get(&pending_key);
+        atomic_val_t source = atomic_get(&pending_source);
+        atomic_val_t event_id = atomic_get(&pending_event_id);
 
-        if (key_code != displayed_key) {
+        if (event_id != displayed_event_id) {
             set_label_for_key(key_label,
                               key_badge_label,
                               color_badge_label,
                               key_cards,
-                              (uint32_t)key_code);
+                              (uint32_t)key_code,
+                              (enum app_input_source)source);
             set_detail_screen_for_key((uint32_t)key_code);
-            displayed_key = key_code;
+            displayed_event_id = event_id;
         }
 
         lv_timer_handler();
@@ -487,7 +546,7 @@ static void button_input_cb(struct input_event *evt, void *user_data)
 
 #if APP_ENABLE_LED_STRIP || APP_USE_LVGL_UI
     if (evt->code >= INPUT_KEY_1 && evt->code <= INPUT_KEY_4) {
-        select_key(evt->code, true, true);
+        select_key(evt->code, APP_INPUT_SOURCE_GPIO, true, true);
     }
 #endif
 }
