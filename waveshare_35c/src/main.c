@@ -27,7 +27,7 @@
 #endif
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
-#if APP_USE_LVGL_UI
+#if APP_USE_LVGL_UI || APP_ENABLE_LED_STRIP
 #include <zephyr/sys/atomic.h>
 #endif
 
@@ -69,12 +69,32 @@ enum app_input_source {
 };
 #endif
 
-#if APP_ENABLE_LED_STRIP
-static atomic_t led_brightness = ATOMIC_INIT(10);
+#if APP_USE_LVGL_UI || APP_ENABLE_LED_STRIP
+struct app_state {
+    atomic_t selected_key;
+    atomic_t selected_source;
+    atomic_t event_id;
+    atomic_t led_brightness;
+#if APP_USE_LVGL_UI
+    atomic_t key_press_counts[KEY_CARD_COUNT];
+#endif
+};
 
+static struct app_state app_state;
+
+static void init_app_state(void)
+{
+    atomic_set(&app_state.selected_key, INPUT_KEY_1);
+    atomic_set(&app_state.selected_source, APP_INPUT_SOURCE_BOOT);
+    atomic_set(&app_state.event_id, 0);
+    atomic_set(&app_state.led_brightness, 10);
+}
+#endif
+
+#if APP_ENABLE_LED_STRIP
 static void update_led_strip(size_t selected_index)
 {
-    uint8_t brightness = (uint8_t)atomic_get(&led_brightness);
+    uint8_t brightness = (uint8_t)atomic_get(&app_state.led_brightness);
     struct led_rgb pixel = { 0 };
 
     switch (selected_index) {
@@ -101,28 +121,28 @@ static void update_led_strip(size_t selected_index)
 #endif
 
 #if APP_USE_LVGL_UI
-static atomic_t pending_key = ATOMIC_INIT(INPUT_KEY_1);
-static atomic_t pending_source = ATOMIC_INIT(APP_INPUT_SOURCE_BOOT);
-static atomic_t pending_event_id;
-static atomic_t key_press_counts[KEY_CARD_COUNT];
 static struct k_thread ui_thread_data;
 static K_THREAD_STACK_DEFINE(ui_thread_stack, UI_THREAD_STACK_SIZE);
 static lv_style_t screen_style;
 static lv_style_t key_label_style;
 static lv_style_t info_label_style;
 static lv_style_t badge_style;
-static lv_style_t key_card_style;
-static lv_obj_t *main_screen;
-static lv_obj_t *detail_screen;
-static lv_obj_t *keyboard_screen;
-static lv_obj_t *keyboard_textarea;
-static lv_obj_t *entered_text_label;
-static lv_obj_t *brightness_value_label;
-static lv_obj_t *brightness_bar;
-static lv_obj_t *detail_key_label;
-static lv_obj_t *detail_color_label;
-static lv_obj_t *detail_source_label;
-static lv_obj_t *detail_count_label;
+
+struct ui_widgets {
+    lv_obj_t *main_screen;
+    lv_obj_t *detail_screen;
+    lv_obj_t *keyboard_screen;
+    lv_obj_t *keyboard_textarea;
+    lv_obj_t *entered_text_label;
+    lv_obj_t *brightness_value_label;
+    lv_obj_t *brightness_bar;
+    lv_obj_t *detail_key_label;
+    lv_obj_t *detail_color_label;
+    lv_obj_t *detail_source_label;
+    lv_obj_t *detail_count_label;
+};
+
+static struct ui_widgets ui;
 #endif
 
 #if APP_USE_LVGL_UI
@@ -160,10 +180,10 @@ static void select_key(uint32_t key_code,
 
 #if APP_USE_LVGL_UI
     if (update_ui) {
-        atomic_inc(&key_press_counts[selected_index]);
-        atomic_set(&pending_source, source);
-        atomic_set(&pending_key, key_code);
-        atomic_inc(&pending_event_id);
+        atomic_inc(&app_state.key_press_counts[selected_index]);
+        atomic_set(&app_state.selected_source, source);
+        atomic_set(&app_state.selected_key, key_code);
+        atomic_inc(&app_state.event_id);
     }
 #endif
 }
@@ -195,12 +215,6 @@ static void init_ui_styles(void)
     lv_style_set_pad_top(&badge_style, 6);
     lv_style_set_pad_bottom(&badge_style, 6);
 
-    lv_style_init(&key_card_style);
-    lv_style_set_bg_color(&key_card_style, lv_color_hex(0x202020));
-    lv_style_set_bg_opa(&key_card_style, LV_OPA_60);
-    lv_style_set_border_color(&key_card_style, lv_color_hex(0x606060));
-    lv_style_set_border_width(&key_card_style, 1);
-    lv_style_set_radius(&key_card_style, 6);
 }
 
 static bool get_key_info(uint32_t key_code,
@@ -259,8 +273,8 @@ static void set_detail_screen_for_key(uint32_t key_code)
     ARG_UNUSED(main_text);
     ARG_UNUSED(selected_index);
 
-    lv_label_set_text(detail_key_label, key_text);
-    lv_label_set_text_fmt(detail_color_label, "COLOR: %s", color_text);
+    lv_label_set_text(ui.detail_key_label, key_text);
+    lv_label_set_text_fmt(ui.detail_color_label, "COLOR: %s", color_text);
 }
 
 static const char *source_text(enum app_input_source source)
@@ -294,9 +308,9 @@ static void set_label_for_key(lv_obj_t *key_label,
         return;
     }
 
-    lv_obj_set_style_bg_color(main_screen, bg_color, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(detail_screen, bg_color, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(keyboard_screen, bg_color, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.main_screen, bg_color, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.detail_screen, bg_color, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.keyboard_screen, bg_color, LV_PART_MAIN);
 
     lv_label_set_text(key_label, text);
     lv_obj_center(key_label);
@@ -317,9 +331,9 @@ static void set_label_for_key(lv_obj_t *key_label,
     lv_obj_set_style_border_color(key_cards[selected_index], lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_width(key_cards[selected_index], 2, LV_PART_MAIN);
 
-    count = atomic_get(&key_press_counts[selected_index]);
-    lv_label_set_text_fmt(detail_source_label, "SOURCE: %s", source_text(source));
-    lv_label_set_text_fmt(detail_count_label, "COUNT: %" PRIiPTR, (intptr_t)count);
+    count = atomic_get(&app_state.key_press_counts[selected_index]);
+    lv_label_set_text_fmt(ui.detail_source_label, "SOURCE: %s", source_text(source));
+    lv_label_set_text_fmt(ui.detail_count_label, "COUNT: %" PRIiPTR, (intptr_t)count);
 }
 
 static void back_card_event_cb(lv_event_t *event)
@@ -328,7 +342,7 @@ static void back_card_event_cb(lv_event_t *event)
         return;
     }
 
-    lv_screen_load_anim(main_screen,
+    lv_screen_load_anim(ui.main_screen,
                         LV_SCR_LOAD_ANIM_MOVE_RIGHT,
                         200,
                         0,
@@ -341,7 +355,7 @@ static void open_keyboard_event_cb(lv_event_t *event)
         return;
     }
 
-    lv_screen_load_anim(keyboard_screen,
+    lv_screen_load_anim(ui.keyboard_screen,
                         LV_SCR_LOAD_ANIM_MOVE_LEFT,
                         200,
                         0,
@@ -356,14 +370,14 @@ static void keyboard_done_event_cb(lv_event_t *event)
         return;
     }
 
-    text = lv_textarea_get_text(keyboard_textarea);
+    text = lv_textarea_get_text(ui.keyboard_textarea);
     if (text[0] == '\0') {
-        lv_label_set_text(entered_text_label, "TEXT: empty");
+        lv_label_set_text(ui.entered_text_label, "TEXT: empty");
     } else {
-        lv_label_set_text_fmt(entered_text_label, "TEXT: %s", text);
+        lv_label_set_text_fmt(ui.entered_text_label, "TEXT: %s", text);
     }
 
-    lv_screen_load_anim(main_screen,
+    lv_screen_load_anim(ui.main_screen,
                         LV_SCR_LOAD_ANIM_MOVE_RIGHT,
                         200,
                         0,
@@ -382,12 +396,12 @@ static void brightness_slider_event_cb(lv_event_t *event)
 
     slider = lv_event_get_target_obj(event);
     brightness = lv_slider_get_value(slider);
-    atomic_set(&led_brightness, brightness);
-    lv_label_set_text_fmt(brightness_value_label, "LED: %" PRId32, brightness);
-    lv_bar_set_value(brightness_bar, brightness, LV_ANIM_OFF);
+    atomic_set(&app_state.led_brightness, brightness);
+    lv_label_set_text_fmt(ui.brightness_value_label, "LED: %" PRId32, brightness);
+    lv_bar_set_value(ui.brightness_bar, brightness, LV_ANIM_OFF);
 
 #if APP_ENABLE_LED_STRIP
-    if (key_index_from_code((uint32_t)atomic_get(&pending_key), &selected_index)) {
+    if (key_index_from_code((uint32_t)atomic_get(&app_state.selected_key), &selected_index)) {
         update_led_strip(selected_index);
     }
 #endif
@@ -424,7 +438,7 @@ static void key_card_event_cb(lv_event_t *event)
     key_code = (uint32_t)(uintptr_t)lv_event_get_user_data(event);
     select_key(key_code, APP_INPUT_SOURCE_TOUCH, true, true);
     set_detail_screen_for_key(key_code);
-    lv_screen_load_anim(detail_screen,
+    lv_screen_load_anim(ui.detail_screen,
                         LV_SCR_LOAD_ANIM_MOVE_LEFT,
                         200,
                         0,
@@ -486,17 +500,17 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
     init_ui_styles();
 
-    main_screen = lv_obj_create(NULL);
-    detail_screen = lv_obj_create(NULL);
-    keyboard_screen = lv_obj_create(NULL);
-    lv_obj_add_style(main_screen, &screen_style, LV_PART_MAIN);
-    lv_obj_add_style(detail_screen, &screen_style, LV_PART_MAIN);
-    lv_obj_add_style(keyboard_screen, &screen_style, LV_PART_MAIN);
+    ui.main_screen = lv_obj_create(NULL);
+    ui.detail_screen = lv_obj_create(NULL);
+    ui.keyboard_screen = lv_obj_create(NULL);
+    lv_obj_add_style(ui.main_screen, &screen_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.detail_screen, &screen_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.keyboard_screen, &screen_style, LV_PART_MAIN);
 
-    header = lv_obj_create(main_screen);
-    content = lv_obj_create(main_screen);
+    header = lv_obj_create(ui.main_screen);
+    content = lv_obj_create(ui.main_screen);
     button_row = lv_obj_create(content);
-    footer = lv_obj_create(main_screen);
+    footer = lv_obj_create(ui.main_screen);
 
     lv_obj_remove_style_all(header);
     lv_obj_remove_style_all(content);
@@ -529,10 +543,10 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
     title_label = lv_label_create(header);
     color_dropdown = lv_dropdown_create(header);
-    entered_text_label = lv_label_create(content);
-    brightness_value_label = lv_label_create(content);
+    ui.entered_text_label = lv_label_create(content);
+    ui.brightness_value_label = lv_label_create(content);
     brightness_slider = lv_slider_create(content);
-    brightness_bar = lv_bar_create(content);
+    ui.brightness_bar = lv_bar_create(content);
     key_label = lv_label_create(content);
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         key_cards[i] = lv_button_create(button_row);
@@ -573,8 +587,8 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_add_event_cb(keyboard_badge, open_keyboard_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_add_style(title_label, &info_label_style, LV_PART_MAIN);
-    lv_obj_add_style(entered_text_label, &info_label_style, LV_PART_MAIN);
-    lv_obj_add_style(brightness_value_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.entered_text_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.brightness_value_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(key_label, &key_label_style, LV_PART_MAIN);
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         lv_obj_add_style(key_card_labels[i], &info_label_style, LV_PART_MAIN);
@@ -591,11 +605,11 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_label_set_text(keyboard_badge_label, "KEYBOARD");
     lv_obj_add_flag(keyboard_badge_label, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    lv_label_set_text(entered_text_label, "TEXT: empty");
-    lv_obj_align(entered_text_label, LV_ALIGN_TOP_MID, 0, 4);
+    lv_label_set_text(ui.entered_text_label, "TEXT: empty");
+    lv_obj_align(ui.entered_text_label, LV_ALIGN_TOP_MID, 0, 4);
 
-    lv_label_set_text(brightness_value_label, "LED: 10");
-    lv_obj_align(brightness_value_label, LV_ALIGN_TOP_MID, 0, 32);
+    lv_label_set_text(ui.brightness_value_label, "LED: 10");
+    lv_obj_align(ui.brightness_value_label, LV_ALIGN_TOP_MID, 0, 32);
 
     lv_obj_set_size(brightness_slider, 300, 18);
     lv_obj_align(brightness_slider, LV_ALIGN_TOP_MID, 0, 58);
@@ -606,10 +620,10 @@ static void ui_thread(void *p1, void *p2, void *p3)
                         LV_EVENT_VALUE_CHANGED,
                         NULL);
 
-    lv_obj_set_size(brightness_bar, 300, 8);
-    lv_obj_align(brightness_bar, LV_ALIGN_TOP_MID, 0, 82);
-    lv_bar_set_range(brightness_bar, 1, 50);
-    lv_bar_set_value(brightness_bar, 10, LV_ANIM_OFF);
+    lv_obj_set_size(ui.brightness_bar, 300, 8);
+    lv_obj_align(ui.brightness_bar, LV_ALIGN_TOP_MID, 0, 82);
+    lv_bar_set_range(ui.brightness_bar, 1, 50);
+    lv_bar_set_value(ui.brightness_bar, 10, LV_ANIM_OFF);
 
     if (nanum_font != NULL) {
         printk("Nanum Gothic font init OK\n");
@@ -631,35 +645,35 @@ static void ui_thread(void *p1, void *p2, void *p3)
                         LV_EVENT_VALUE_CHANGED,
                         NULL);
 
-    detail_title_label = lv_label_create(detail_screen);
-    detail_key_label = lv_label_create(detail_screen);
-    detail_color_label = lv_label_create(detail_screen);
-    detail_source_label = lv_label_create(detail_screen);
-    detail_count_label = lv_label_create(detail_screen);
-    detail_back_card = lv_obj_create(detail_screen);
+    detail_title_label = lv_label_create(ui.detail_screen);
+    ui.detail_key_label = lv_label_create(ui.detail_screen);
+    ui.detail_color_label = lv_label_create(ui.detail_screen);
+    ui.detail_source_label = lv_label_create(ui.detail_screen);
+    ui.detail_count_label = lv_label_create(ui.detail_screen);
+    detail_back_card = lv_obj_create(ui.detail_screen);
     detail_back_label = lv_label_create(detail_back_card);
 
     lv_obj_remove_style_all(detail_back_card);
     lv_obj_add_style(detail_title_label, &info_label_style, LV_PART_MAIN);
-    lv_obj_add_style(detail_key_label, &key_label_style, LV_PART_MAIN);
-    lv_obj_add_style(detail_color_label, &info_label_style, LV_PART_MAIN);
-    lv_obj_add_style(detail_source_label, &info_label_style, LV_PART_MAIN);
-    lv_obj_add_style(detail_count_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.detail_key_label, &key_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.detail_color_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.detail_source_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.detail_count_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(detail_back_card, &badge_style, LV_PART_MAIN);
     lv_obj_add_style(detail_back_label, &info_label_style, LV_PART_MAIN);
 
     if (nanum_font != NULL) {
-        lv_obj_set_style_text_font(detail_key_label, nanum_font, LV_PART_MAIN);
+        lv_obj_set_style_text_font(ui.detail_key_label, nanum_font, LV_PART_MAIN);
     } else {
-        lv_obj_set_style_text_font(detail_key_label, &lv_font_montserrat_48, LV_PART_MAIN);
+        lv_obj_set_style_text_font(ui.detail_key_label, &lv_font_montserrat_48, LV_PART_MAIN);
     }
 
     lv_label_set_text(detail_title_label, "Detail");
     lv_obj_align(detail_title_label, LV_ALIGN_TOP_MID, 0, 16);
-    lv_obj_center(detail_key_label);
-    lv_obj_align(detail_color_label, LV_ALIGN_CENTER, 0, 56);
-    lv_obj_align(detail_source_label, LV_ALIGN_CENTER, 0, 88);
-    lv_obj_align(detail_count_label, LV_ALIGN_CENTER, 0, 120);
+    lv_obj_center(ui.detail_key_label);
+    lv_obj_align(ui.detail_color_label, LV_ALIGN_CENTER, 0, 56);
+    lv_obj_align(ui.detail_source_label, LV_ALIGN_CENTER, 0, 88);
+    lv_obj_align(ui.detail_count_label, LV_ALIGN_CENTER, 0, 120);
 
     lv_obj_set_size(detail_back_card, 96, 36);
     lv_obj_align(detail_back_card, LV_ALIGN_BOTTOM_MID, 0, -14);
@@ -668,14 +682,14 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_label_set_text(detail_back_label, "BACK");
     lv_obj_center(detail_back_label);
 
-    keyboard_title_label = lv_label_create(keyboard_screen);
-    keyboard_hint_label = lv_label_create(keyboard_screen);
-    keyboard_textarea = lv_textarea_create(keyboard_screen);
-    keyboard_done_card = lv_obj_create(keyboard_screen);
-    keyboard_back_card = lv_obj_create(keyboard_screen);
+    keyboard_title_label = lv_label_create(ui.keyboard_screen);
+    keyboard_hint_label = lv_label_create(ui.keyboard_screen);
+    ui.keyboard_textarea = lv_textarea_create(ui.keyboard_screen);
+    keyboard_done_card = lv_obj_create(ui.keyboard_screen);
+    keyboard_back_card = lv_obj_create(ui.keyboard_screen);
     keyboard_done_label = lv_label_create(keyboard_done_card);
     keyboard_back_label = lv_label_create(keyboard_back_card);
-    keyboard = lv_keyboard_create(keyboard_screen);
+    keyboard = lv_keyboard_create(ui.keyboard_screen);
 
     lv_obj_add_style(keyboard_title_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(keyboard_hint_label, &info_label_style, LV_PART_MAIN);
@@ -688,10 +702,10 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_label_set_text(keyboard_hint_label, "Touch the input box and type");
     lv_obj_align(keyboard_hint_label, LV_ALIGN_TOP_MID, 0, 34);
 
-    lv_obj_set_size(keyboard_textarea, 430, 44);
-    lv_obj_align(keyboard_textarea, LV_ALIGN_TOP_MID, 0, 60);
-    lv_textarea_set_one_line(keyboard_textarea, true);
-    lv_textarea_set_placeholder_text(keyboard_textarea, "Input text");
+    lv_obj_set_size(ui.keyboard_textarea, 430, 44);
+    lv_obj_align(ui.keyboard_textarea, LV_ALIGN_TOP_MID, 0, 60);
+    lv_textarea_set_one_line(ui.keyboard_textarea, true);
+    lv_textarea_set_placeholder_text(ui.keyboard_textarea, "Input text");
 
     lv_obj_remove_style_all(keyboard_done_card);
     lv_obj_remove_style_all(keyboard_back_card);
@@ -715,17 +729,17 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
     lv_obj_set_size(keyboard, 460, 160);
     lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, -4);
-    lv_keyboard_set_textarea(keyboard, keyboard_textarea);
+    lv_keyboard_set_textarea(keyboard, ui.keyboard_textarea);
 
     set_detail_screen_for_key(INPUT_KEY_1);
-    lv_screen_load(main_screen);
+    lv_screen_load(ui.main_screen);
     lv_refr_now(NULL);
     printk("LVGL main screen loaded\n");
 
     while (1) {
-        atomic_val_t key_code = atomic_get(&pending_key);
-        atomic_val_t source = atomic_get(&pending_source);
-        atomic_val_t event_id = atomic_get(&pending_event_id);
+        atomic_val_t key_code = atomic_get(&app_state.selected_key);
+        atomic_val_t source = atomic_get(&app_state.selected_source);
+        atomic_val_t event_id = atomic_get(&app_state.event_id);
 
         if (event_id != displayed_event_id) {
             set_label_for_key(key_label,
@@ -781,6 +795,10 @@ int main(void)
 #endif
 
     printk("main start\n");
+
+#if APP_USE_LVGL_UI || APP_ENABLE_LED_STRIP
+    init_app_state();
+#endif
 
 #if APP_ENABLE_BUTTONS
     if (!device_is_ready(BUTTONS_DEV)) {
