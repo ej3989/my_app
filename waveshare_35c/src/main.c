@@ -70,12 +70,34 @@ enum app_input_source {
 #endif
 
 #if APP_ENABLE_LED_STRIP
-static struct led_rgb pixels[4] = {
-    { .r = 10, .g = 0, .b = 0 },
-    { .r = 0, .g = 10, .b = 0 },
-    { .r = 0, .g = 0, .b = 10 },
-    { .r = 10, .g = 10, .b = 10 }
-};
+static atomic_t led_brightness = ATOMIC_INIT(10);
+
+static void update_led_strip(size_t selected_index)
+{
+    uint8_t brightness = (uint8_t)atomic_get(&led_brightness);
+    struct led_rgb pixel = { 0 };
+
+    switch (selected_index) {
+    case 0:
+        pixel.r = brightness;
+        break;
+    case 1:
+        pixel.g = brightness;
+        break;
+    case 2:
+        pixel.b = brightness;
+        break;
+    case 3:
+        pixel.r = brightness;
+        pixel.g = brightness;
+        pixel.b = brightness;
+        break;
+    default:
+        return;
+    }
+
+    led_strip_update_rgb(STRIP_DEV, &pixel, 1);
+}
 #endif
 
 #if APP_USE_LVGL_UI
@@ -92,6 +114,13 @@ static lv_style_t badge_style;
 static lv_style_t key_card_style;
 static lv_obj_t *main_screen;
 static lv_obj_t *detail_screen;
+static lv_obj_t *keyboard_screen;
+static lv_obj_t *options_screen;
+static lv_obj_t *keyboard_textarea;
+static lv_obj_t *entered_text_label;
+static lv_obj_t *brightness_value_label;
+static lv_obj_t *brightness_bar;
+static lv_obj_t *options_status_label;
 static lv_obj_t *detail_key_label;
 static lv_obj_t *detail_color_label;
 static lv_obj_t *detail_source_label;
@@ -116,7 +145,7 @@ static bool key_index_from_code(uint32_t key_code, size_t *selected_index)
 #if APP_ENABLE_LED_STRIP || APP_USE_LVGL_UI
 static void select_key(uint32_t key_code,
                        enum app_input_source source,
-                       bool update_led_strip,
+                       bool update_led,
                        bool update_ui)
 {
     size_t selected_index;
@@ -126,8 +155,8 @@ static void select_key(uint32_t key_code,
     }
 
 #if APP_ENABLE_LED_STRIP
-    if (update_led_strip) {
-        led_strip_update_rgb(STRIP_DEV, &pixels[selected_index], 1);
+    if (update_led) {
+        update_led_strip(selected_index);
     }
 #endif
 
@@ -269,6 +298,8 @@ static void set_label_for_key(lv_obj_t *key_label,
 
     lv_obj_set_style_bg_color(main_screen, bg_color, LV_PART_MAIN);
     lv_obj_set_style_bg_color(detail_screen, bg_color, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(keyboard_screen, bg_color, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(options_screen, bg_color, LV_PART_MAIN);
 
     lv_label_set_text(key_label, text);
     lv_obj_center(key_label);
@@ -277,7 +308,6 @@ static void set_label_for_key(lv_obj_t *key_label,
     lv_label_set_text_fmt(color_badge_label, "%s %s",
                           color_text,
                           source_text(source));
-
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         lv_obj_set_style_bg_color(key_cards[i], lv_color_hex(0x202020), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(key_cards[i], LV_OPA_60, LV_PART_MAIN);
@@ -306,6 +336,104 @@ static void back_card_event_cb(lv_event_t *event)
                         200,
                         0,
                         false);
+}
+
+static void open_keyboard_event_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+        return;
+    }
+
+    lv_screen_load_anim(keyboard_screen,
+                        LV_SCR_LOAD_ANIM_MOVE_LEFT,
+                        200,
+                        0,
+                        false);
+}
+
+static void open_options_event_cb(lv_event_t *event)
+{
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+        return;
+    }
+
+    lv_screen_load_anim(options_screen,
+                        LV_SCR_LOAD_ANIM_MOVE_LEFT,
+                        200,
+                        0,
+                        false);
+}
+
+static void keyboard_done_event_cb(lv_event_t *event)
+{
+    const char *text;
+
+    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+        return;
+    }
+
+    text = lv_textarea_get_text(keyboard_textarea);
+    if (text[0] == '\0') {
+        lv_label_set_text(entered_text_label, "TEXT: empty");
+    } else {
+        lv_label_set_text_fmt(entered_text_label, "TEXT: %s", text);
+    }
+
+    lv_screen_load_anim(main_screen,
+                        LV_SCR_LOAD_ANIM_MOVE_RIGHT,
+                        200,
+                        0,
+                        false);
+}
+
+static void brightness_slider_event_cb(lv_event_t *event)
+{
+    lv_obj_t *slider;
+    int32_t brightness;
+    size_t selected_index;
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
+        return;
+    }
+
+    slider = lv_event_get_target_obj(event);
+    brightness = lv_slider_get_value(slider);
+    atomic_set(&led_brightness, brightness);
+    lv_label_set_text_fmt(brightness_value_label, "LED: %" PRId32, brightness);
+    lv_bar_set_value(brightness_bar, brightness, LV_ANIM_OFF);
+
+#if APP_ENABLE_LED_STRIP
+    if (key_index_from_code((uint32_t)atomic_get(&pending_key), &selected_index)) {
+        update_led_strip(selected_index);
+    }
+#endif
+}
+
+static void color_dropdown_event_cb(lv_event_t *event)
+{
+    lv_obj_t *dropdown;
+    uint32_t selected;
+    uint32_t key_code;
+    static const char *const color_names[KEY_CARD_COUNT] = {
+        "RED",
+        "GREEN",
+        "BLUE",
+        "WHITE"
+    };
+
+    if (lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED) {
+        return;
+    }
+
+    dropdown = lv_event_get_target_obj(event);
+    selected = lv_dropdown_get_selected(dropdown);
+    if (selected >= KEY_CARD_COUNT) {
+        return;
+    }
+
+    key_code = INPUT_KEY_1 + selected;
+    select_key(key_code, APP_INPUT_SOURCE_TOUCH, true, true);
+    lv_label_set_text_fmt(options_status_label, "SELECTED: %s", color_names[selected]);
 }
 
 static void key_card_event_cb(lv_event_t *event)
@@ -343,15 +471,32 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_t *footer;
     lv_obj_t *title_label;
     lv_obj_t *key_label;
+    lv_obj_t *brightness_slider;
     lv_obj_t *key_cards[KEY_CARD_COUNT];
     lv_obj_t *key_card_labels[KEY_CARD_COUNT];
     lv_obj_t *key_badge;
     lv_obj_t *color_badge;
+    lv_obj_t *keyboard_badge;
+    lv_obj_t *options_badge;
     lv_obj_t *key_badge_label;
     lv_obj_t *color_badge_label;
+    lv_obj_t *keyboard_badge_label;
+    lv_obj_t *options_badge_label;
     lv_obj_t *detail_title_label;
     lv_obj_t *detail_back_card;
     lv_obj_t *detail_back_label;
+    lv_obj_t *keyboard_title_label;
+    lv_obj_t *keyboard_hint_label;
+    lv_obj_t *keyboard_done_card;
+    lv_obj_t *keyboard_back_card;
+    lv_obj_t *keyboard_done_label;
+    lv_obj_t *keyboard_back_label;
+    lv_obj_t *keyboard;
+    lv_obj_t *options_title_label;
+    lv_obj_t *options_hint_label;
+    lv_obj_t *color_dropdown;
+    lv_obj_t *options_back_card;
+    lv_obj_t *options_back_label;
     static const char *const key_card_texts[KEY_CARD_COUNT] = {
         "KEY1",
         "KEY2",
@@ -372,8 +517,12 @@ static void ui_thread(void *p1, void *p2, void *p3)
 
     main_screen = lv_obj_create(NULL);
     detail_screen = lv_obj_create(NULL);
+    keyboard_screen = lv_obj_create(NULL);
+    options_screen = lv_obj_create(NULL);
     lv_obj_add_style(main_screen, &screen_style, LV_PART_MAIN);
     lv_obj_add_style(detail_screen, &screen_style, LV_PART_MAIN);
+    lv_obj_add_style(keyboard_screen, &screen_style, LV_PART_MAIN);
+    lv_obj_add_style(options_screen, &screen_style, LV_PART_MAIN);
 
     header = lv_obj_create(main_screen);
     content = lv_obj_create(main_screen);
@@ -410,15 +559,21 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_set_style_pad_gap(footer, 8, LV_PART_MAIN);
 
     title_label = lv_label_create(header);
+    entered_text_label = lv_label_create(content);
+    brightness_value_label = lv_label_create(content);
+    brightness_slider = lv_slider_create(content);
+    brightness_bar = lv_bar_create(content);
     key_label = lv_label_create(content);
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
-        key_cards[i] = lv_obj_create(button_row);
+        key_cards[i] = lv_button_create(button_row);
         key_card_labels[i] = lv_label_create(key_cards[i]);
 
-        lv_obj_remove_style_all(key_cards[i]);
-        lv_obj_add_style(key_cards[i], &key_card_style, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(key_cards[i], lv_color_hex(0x202020), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(key_cards[i], LV_OPA_60, LV_PART_MAIN);
+        lv_obj_set_style_border_color(key_cards[i], lv_color_hex(0x606060), LV_PART_MAIN);
+        lv_obj_set_style_border_width(key_cards[i], 1, LV_PART_MAIN);
+        lv_obj_set_style_radius(key_cards[i], 6, LV_PART_MAIN);
         lv_obj_set_size(key_cards[i], 92, 54);
-        lv_obj_add_flag(key_cards[i], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(key_cards[i],
                             key_card_event_cb,
                             LV_EVENT_CLICKED,
@@ -426,17 +581,41 @@ static void ui_thread(void *p1, void *p2, void *p3)
     }
     key_badge = lv_obj_create(footer);
     color_badge = lv_obj_create(footer);
+    keyboard_badge = lv_button_create(footer);
+    options_badge = lv_button_create(footer);
     key_badge_label = lv_label_create(key_badge);
     color_badge_label = lv_label_create(color_badge);
+    keyboard_badge_label = lv_label_create(keyboard_badge);
+    options_badge_label = lv_label_create(options_badge);
 
     lv_obj_remove_style_all(key_badge);
     lv_obj_remove_style_all(color_badge);
     lv_obj_add_style(key_badge, &badge_style, LV_PART_MAIN);
     lv_obj_add_style(color_badge, &badge_style, LV_PART_MAIN);
-    lv_obj_set_size(key_badge, 82, 32);
-    lv_obj_set_size(color_badge, 150, 32);
+    lv_obj_set_style_bg_color(keyboard_badge, lv_color_hex(0x202020), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(keyboard_badge, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_radius(keyboard_badge, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(keyboard_badge, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(keyboard_badge, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(keyboard_badge, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(keyboard_badge, 6, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(options_badge, lv_color_hex(0x202020), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(options_badge, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_radius(options_badge, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(options_badge, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(options_badge, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(options_badge, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(options_badge, 6, LV_PART_MAIN);
+    lv_obj_set_size(key_badge, 70, 32);
+    lv_obj_set_size(color_badge, 130, 32);
+    lv_obj_set_size(keyboard_badge, 118, 32);
+    lv_obj_set_size(options_badge, 96, 32);
+    lv_obj_add_event_cb(keyboard_badge, open_keyboard_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(options_badge, open_options_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_add_style(title_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(entered_text_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(brightness_value_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(key_label, &key_label_style, LV_PART_MAIN);
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         lv_obj_add_style(key_card_labels[i], &info_label_style, LV_PART_MAIN);
@@ -446,8 +625,36 @@ static void ui_thread(void *p1, void *p2, void *p3)
     }
     lv_obj_add_style(key_badge_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(color_badge_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(keyboard_badge_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(options_badge_label, &info_label_style, LV_PART_MAIN);
     lv_obj_center(key_badge_label);
     lv_obj_center(color_badge_label);
+    lv_obj_center(keyboard_badge_label);
+    lv_obj_center(options_badge_label);
+    lv_label_set_text(keyboard_badge_label, "KEYBOARD");
+    lv_label_set_text(options_badge_label, "OPTIONS");
+    lv_obj_add_flag(keyboard_badge_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_flag(options_badge_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    lv_label_set_text(entered_text_label, "TEXT: empty");
+    lv_obj_align(entered_text_label, LV_ALIGN_TOP_MID, 0, 4);
+
+    lv_label_set_text(brightness_value_label, "LED: 10");
+    lv_obj_align(brightness_value_label, LV_ALIGN_TOP_MID, 0, 32);
+
+    lv_obj_set_size(brightness_slider, 300, 18);
+    lv_obj_align(brightness_slider, LV_ALIGN_TOP_MID, 0, 58);
+    lv_slider_set_range(brightness_slider, 1, 50);
+    lv_slider_set_value(brightness_slider, 10, LV_ANIM_OFF);
+    lv_obj_add_event_cb(brightness_slider,
+                        brightness_slider_event_cb,
+                        LV_EVENT_VALUE_CHANGED,
+                        NULL);
+
+    lv_obj_set_size(brightness_bar, 300, 8);
+    lv_obj_align(brightness_bar, LV_ALIGN_TOP_MID, 0, 82);
+    lv_bar_set_range(brightness_bar, 1, 50);
+    lv_bar_set_value(brightness_bar, 10, LV_ANIM_OFF);
 
     if (nanum_font != NULL) {
         printk("Nanum Gothic font init OK\n");
@@ -496,6 +703,95 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_add_event_cb(detail_back_card, back_card_event_cb, LV_EVENT_CLICKED, NULL);
     lv_label_set_text(detail_back_label, "BACK");
     lv_obj_center(detail_back_label);
+
+    keyboard_title_label = lv_label_create(keyboard_screen);
+    keyboard_hint_label = lv_label_create(keyboard_screen);
+    keyboard_textarea = lv_textarea_create(keyboard_screen);
+    keyboard_done_card = lv_obj_create(keyboard_screen);
+    keyboard_back_card = lv_obj_create(keyboard_screen);
+    keyboard_done_label = lv_label_create(keyboard_done_card);
+    keyboard_back_label = lv_label_create(keyboard_back_card);
+    keyboard = lv_keyboard_create(keyboard_screen);
+
+    lv_obj_add_style(keyboard_title_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(keyboard_hint_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(keyboard_done_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(keyboard_back_label, &info_label_style, LV_PART_MAIN);
+
+    lv_label_set_text(keyboard_title_label, "Text Input");
+    lv_obj_align(keyboard_title_label, LV_ALIGN_TOP_MID, 0, 10);
+
+    lv_label_set_text(keyboard_hint_label, "Touch the input box and type");
+    lv_obj_align(keyboard_hint_label, LV_ALIGN_TOP_MID, 0, 34);
+
+    lv_obj_set_size(keyboard_textarea, 430, 44);
+    lv_obj_align(keyboard_textarea, LV_ALIGN_TOP_MID, 0, 60);
+    lv_textarea_set_one_line(keyboard_textarea, true);
+    lv_textarea_set_placeholder_text(keyboard_textarea, "Input text");
+
+    lv_obj_remove_style_all(keyboard_done_card);
+    lv_obj_remove_style_all(keyboard_back_card);
+    lv_obj_add_style(keyboard_done_card, &badge_style, LV_PART_MAIN);
+    lv_obj_add_style(keyboard_back_card, &badge_style, LV_PART_MAIN);
+    lv_obj_set_size(keyboard_done_card, 110, 34);
+    lv_obj_set_size(keyboard_back_card, 110, 34);
+    lv_obj_align(keyboard_done_card, LV_ALIGN_TOP_MID, -62, 110);
+    lv_obj_align(keyboard_back_card, LV_ALIGN_TOP_MID, 62, 110);
+    lv_obj_add_flag(keyboard_done_card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(keyboard_back_card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(keyboard_done_card, keyboard_done_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(keyboard_back_card, back_card_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_label_set_text(keyboard_done_label, "DONE");
+    lv_label_set_text(keyboard_back_label, "BACK");
+    lv_obj_add_flag(keyboard_done_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_flag(keyboard_back_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_center(keyboard_done_label);
+    lv_obj_center(keyboard_back_label);
+
+    lv_obj_set_size(keyboard, 460, 160);
+    lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_keyboard_set_textarea(keyboard, keyboard_textarea);
+
+    options_title_label = lv_label_create(options_screen);
+    options_hint_label = lv_label_create(options_screen);
+    color_dropdown = lv_dropdown_create(options_screen);
+    options_status_label = lv_label_create(options_screen);
+    options_back_card = lv_obj_create(options_screen);
+    options_back_label = lv_label_create(options_back_card);
+
+    lv_obj_add_style(options_title_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(options_hint_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(options_status_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(options_back_label, &info_label_style, LV_PART_MAIN);
+
+    lv_label_set_text(options_title_label, "Options");
+    lv_obj_align(options_title_label, LV_ALIGN_TOP_MID, 0, 24);
+
+    lv_label_set_text(options_hint_label, "Select LED color");
+    lv_obj_align(options_hint_label, LV_ALIGN_TOP_MID, 0, 62);
+
+    lv_dropdown_set_options(color_dropdown, "RED\nGREEN\nBLUE\nWHITE");
+    lv_dropdown_set_selected(color_dropdown, 0);
+    lv_obj_set_size(color_dropdown, 220, 42);
+    lv_obj_align(color_dropdown, LV_ALIGN_CENTER, 0, -22);
+    lv_obj_add_event_cb(color_dropdown,
+                        color_dropdown_event_cb,
+                        LV_EVENT_VALUE_CHANGED,
+                        NULL);
+
+    lv_label_set_text(options_status_label, "SELECTED: RED");
+    lv_obj_align(options_status_label, LV_ALIGN_CENTER, 0, 44);
+
+    lv_obj_remove_style_all(options_back_card);
+    lv_obj_add_style(options_back_card, &badge_style, LV_PART_MAIN);
+    lv_obj_set_size(options_back_card, 110, 36);
+    lv_obj_align(options_back_card, LV_ALIGN_BOTTOM_MID, 0, -18);
+    lv_obj_add_flag(options_back_card, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(options_back_card, back_card_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_label_set_text(options_back_label, "BACK");
+    lv_obj_add_flag(options_back_label, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_center(options_back_label);
 
     set_detail_screen_for_key(INPUT_KEY_1);
     lv_screen_load(main_screen);
@@ -631,7 +927,7 @@ int main(void)
 #endif
 
 #if APP_ENABLE_LED_STRIP
-    led_strip_update_rgb(STRIP_DEV, &pixels[RED_PIXEL_INDEX], 1);
+    update_led_strip(RED_PIXEL_INDEX);
 #endif
 
 #if APP_USE_LVGL_UI
