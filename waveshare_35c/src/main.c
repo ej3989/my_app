@@ -136,6 +136,11 @@ struct ui_widgets {
     lv_obj_t *entered_text_label;
     lv_obj_t *brightness_value_label;
     lv_obj_t *brightness_bar;
+    lv_obj_t *status_panel;
+    lv_obj_t *status_color_label;
+    lv_obj_t *status_brightness_label;
+    lv_obj_t *status_source_label;
+    lv_obj_t *status_text_label;
     lv_obj_t *detail_key_label;
     lv_obj_t *detail_color_label;
     lv_obj_t *detail_source_label;
@@ -290,6 +295,39 @@ static const char *source_text(enum app_input_source source)
     }
 }
 
+static void update_status_panel(uint32_t key_code, enum app_input_source source)
+{
+    const char *main_text;
+    const char *key_text;
+    const char *color_text;
+    const char *input_text;
+    lv_color_t bg_color;
+    size_t selected_index;
+    atomic_val_t brightness;
+
+    if (ui.status_panel == NULL ||
+        !get_key_info(key_code, &main_text, &key_text, &color_text, &bg_color, &selected_index)) {
+        return;
+    }
+
+    ARG_UNUSED(main_text);
+    ARG_UNUSED(key_text);
+    ARG_UNUSED(bg_color);
+    ARG_UNUSED(selected_index);
+
+    brightness = atomic_get(&app_state.led_brightness);
+    input_text = lv_textarea_get_text(ui.keyboard_textarea);
+
+    lv_label_set_text_fmt(ui.status_color_label, "COLOR: %s", color_text);
+    lv_label_set_text_fmt(ui.status_brightness_label, "BRIGHT: %" PRIiPTR, (intptr_t)brightness);
+    lv_label_set_text_fmt(ui.status_source_label, "SOURCE: %s", source_text(source));
+    if (input_text[0] == '\0') {
+        lv_label_set_text(ui.status_text_label, "TEXT: empty");
+    } else {
+        lv_label_set_text_fmt(ui.status_text_label, "TEXT: %s", input_text);
+    }
+}
+
 static void set_label_for_key(lv_obj_t *key_label,
                               lv_obj_t *key_badge_label,
                               lv_obj_t *color_badge_label,
@@ -313,7 +351,7 @@ static void set_label_for_key(lv_obj_t *key_label,
     lv_obj_set_style_bg_color(ui.keyboard_screen, bg_color, LV_PART_MAIN);
 
     lv_label_set_text(key_label, text);
-    lv_obj_center(key_label);
+    lv_obj_align(key_label, LV_ALIGN_RIGHT_MID, -58, 14);
 
     lv_label_set_text(key_badge_label, key_text);
     lv_label_set_text_fmt(color_badge_label, "%s %s",
@@ -334,6 +372,7 @@ static void set_label_for_key(lv_obj_t *key_label,
     count = atomic_get(&app_state.key_press_counts[selected_index]);
     lv_label_set_text_fmt(ui.detail_source_label, "SOURCE: %s", source_text(source));
     lv_label_set_text_fmt(ui.detail_count_label, "COUNT: %" PRIiPTR, (intptr_t)count);
+    update_status_panel(key_code, source);
 }
 
 static void back_card_event_cb(lv_event_t *event)
@@ -376,6 +415,8 @@ static void keyboard_done_event_cb(lv_event_t *event)
     } else {
         lv_label_set_text_fmt(ui.entered_text_label, "TEXT: %s", text);
     }
+    update_status_panel((uint32_t)atomic_get(&app_state.selected_key),
+                        (enum app_input_source)atomic_get(&app_state.selected_source));
 
     lv_screen_load_anim(ui.main_screen,
                         LV_SCR_LOAD_ANIM_MOVE_RIGHT,
@@ -399,6 +440,8 @@ static void brightness_slider_event_cb(lv_event_t *event)
     atomic_set(&app_state.led_brightness, brightness);
     lv_label_set_text_fmt(ui.brightness_value_label, "LED: %" PRId32, brightness);
     lv_bar_set_value(ui.brightness_bar, brightness, LV_ANIM_OFF);
+    update_status_panel((uint32_t)atomic_get(&app_state.selected_key),
+                        (enum app_input_source)atomic_get(&app_state.selected_source));
 
 #if APP_ENABLE_LED_STRIP
     if (key_index_from_code((uint32_t)atomic_get(&app_state.selected_key), &selected_index)) {
@@ -547,6 +590,11 @@ static void ui_thread(void *p1, void *p2, void *p3)
     ui.brightness_value_label = lv_label_create(content);
     brightness_slider = lv_slider_create(content);
     ui.brightness_bar = lv_bar_create(content);
+    ui.status_panel = lv_obj_create(content);
+    ui.status_color_label = lv_label_create(ui.status_panel);
+    ui.status_brightness_label = lv_label_create(ui.status_panel);
+    ui.status_source_label = lv_label_create(ui.status_panel);
+    ui.status_text_label = lv_label_create(ui.status_panel);
     key_label = lv_label_create(content);
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         key_cards[i] = lv_button_create(button_row);
@@ -589,6 +637,10 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_add_style(title_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(ui.entered_text_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(ui.brightness_value_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.status_color_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.status_brightness_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.status_source_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.status_text_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(key_label, &key_label_style, LV_PART_MAIN);
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         lv_obj_add_style(key_card_labels[i], &info_label_style, LV_PART_MAIN);
@@ -624,6 +676,36 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_align(ui.brightness_bar, LV_ALIGN_TOP_MID, 0, 82);
     lv_bar_set_range(ui.brightness_bar, 1, 50);
     lv_bar_set_value(ui.brightness_bar, 10, LV_ANIM_OFF);
+
+    lv_obj_remove_style_all(ui.status_panel);
+    lv_obj_set_size(ui.status_panel, 232, 58);
+    lv_obj_align(ui.status_panel, LV_ALIGN_LEFT_MID, 10, 14);
+    lv_obj_set_style_bg_color(ui.status_panel, lv_color_hex(0x202020), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.status_panel, LV_OPA_60, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.status_panel, lv_color_hex(0x606060), LV_PART_MAIN);
+    lv_obj_set_style_border_width(ui.status_panel, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(ui.status_panel, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(ui.status_panel, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(ui.status_panel, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(ui.status_panel, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(ui.status_panel, 4, LV_PART_MAIN);
+
+    lv_label_set_text(ui.status_color_label, "COLOR: RED");
+    lv_label_set_text(ui.status_brightness_label, "BRIGHT: 10");
+    lv_label_set_text(ui.status_source_label, "SOURCE: BOOT");
+    lv_label_set_text(ui.status_text_label, "TEXT: empty");
+    lv_obj_set_width(ui.status_color_label, 216);
+    lv_obj_set_width(ui.status_brightness_label, 216);
+    lv_obj_set_width(ui.status_source_label, 216);
+    lv_obj_set_width(ui.status_text_label, 216);
+    lv_label_set_long_mode(ui.status_color_label, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(ui.status_brightness_label, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(ui.status_source_label, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(ui.status_text_label, LV_LABEL_LONG_DOT);
+    lv_obj_align(ui.status_color_label, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_align(ui.status_brightness_label, LV_ALIGN_TOP_LEFT, 0, 13);
+    lv_obj_align(ui.status_source_label, LV_ALIGN_TOP_LEFT, 0, 26);
+    lv_obj_align(ui.status_text_label, LV_ALIGN_TOP_LEFT, 0, 39);
 
     if (nanum_font != NULL) {
         printk("Nanum Gothic font init OK\n");

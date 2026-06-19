@@ -64,6 +64,7 @@ struct measurement {
 #define POWER_OFF	      0
 #define POWER_ON	      0x03
 #define CONVERT_U16(buf, idx) ((uint16_t)((buf[idx] & 0x7f) << 5) | (buf[idx + 1] >> 3))
+#define XPT2046_DRAG_POLL_MS  20
 
 /* Read all Z1, X, Y, Z2 channels using 16 Clocks-per-Conversion mode.
  * See the manual https://www.waveshare.com/w/upload/9/98/XPT2046-EN.pdf for details.
@@ -105,44 +106,19 @@ static int xpt2046_read_and_cumulate(const struct spi_dt_spec *bus, const struct
 	return 0;
 }
 
-static void xpt2046_release_handler(struct k_work *kw)
+static bool xpt2046_sample_and_report(struct xpt2046_data *data)
 {
-	struct k_work_delayable *dw = k_work_delayable_from_work(kw);
-	struct xpt2046_data *data = CONTAINER_OF(dw, struct xpt2046_data, dwork);
 	struct xpt2046_config *config = (struct xpt2046_config *)data->dev->config;
-
-	if (!data->pressed) {
-		return;
-	}
-
-	/* Check if touch is still pressed */
-	if (gpio_pin_get_dt(&config->int_gpio) == 0) {
-		data->pressed = false;
-		input_report_key(data->dev, INPUT_BTN_TOUCH, 0, true, K_FOREVER);
-	} else {
-		/* Re-check later */
-		k_work_reschedule(&data->dwork, K_MSEC(10));
-	}
-}
-
-static void xpt2046_work_handler(struct k_work *kw)
-{
-	struct xpt2046_data *data = CONTAINER_OF(kw, struct xpt2046_data, work);
-	struct xpt2046_config *config = (struct xpt2046_config *)data->dev->config;
-	int ret;
-
 	const struct spi_buf txb = {.buf = tbuf, .len = sizeof(tbuf)};
 	const struct spi_buf rxb = {.buf = data->rbuf, .len = sizeof(data->rbuf)};
 	const struct spi_buf_set tx_bufs = {.buffers = &txb, .count = 1};
 	const struct spi_buf_set rx_bufs = {.buffers = &rxb, .count = 1};
-
-	/* Run number of reads and calculate average */
 	int rounds = config->reads;
 	struct measurement meas = {0};
 
 	for (int i = 0; i < rounds; i++) {
 		if (xpt2046_read_and_cumulate(&config->bus, &tx_bufs, &rx_bufs, &meas) != 0) {
-			return;
+			return false;
 		}
 	}
 	meas.x /= rounds;
@@ -179,22 +155,59 @@ static void xpt2046_work_handler(struct k_work *kw)
 
 	bool pressed = meas.z > config->threshold;
 
-	/* Don't send any other than "pressed" events.
-	 * releasing seem to cause just random noise
+	if (!pressed) {
+		return false;
+	}
+
+	LOG_DBG("raw: x=%4u y=%4u ==> x=%4d y=%4d", meas.x, meas.y, x, y);
+
+	input_report_abs(data->dev, INPUT_ABS_X, x, false, K_FOREVER);
+	input_report_abs(data->dev, INPUT_ABS_Y, y, false, K_FOREVER);
+	input_report_key(data->dev, INPUT_BTN_TOUCH, 1, true, K_FOREVER);
+
+	data->last_x = x;
+	data->last_y = y;
+	data->pressed = true;
+
+	return true;
+}
+
+static void xpt2046_release_handler(struct k_work *kw)
+{
+	struct k_work_delayable *dw = k_work_delayable_from_work(kw);
+	struct xpt2046_data *data = CONTAINER_OF(dw, struct xpt2046_data, dwork);
+	struct xpt2046_config *config = (struct xpt2046_config *)data->dev->config;
+
+	if (!data->pressed) {
+		return;
+	}
+
+	/* Check if touch is still pressed. The GPIO is active-low in devicetree,
+	 * so logical 0 means released and logical 1 means pressed.
 	 */
-	if (pressed) {
-		LOG_DBG("raw: x=%4u y=%4u ==> x=%4d y=%4d", meas.x, meas.y, x, y);
+	if (gpio_pin_get_dt(&config->int_gpio) == 0) {
+		data->pressed = false;
+		input_report_key(data->dev, INPUT_BTN_TOUCH, 0, true, K_FOREVER);
+		return;
+	}
 
-		input_report_abs(data->dev, INPUT_ABS_X, x, false, K_FOREVER);
-		input_report_abs(data->dev, INPUT_ABS_Y, y, false, K_FOREVER);
-		input_report_key(data->dev, INPUT_BTN_TOUCH, 1, true, K_FOREVER);
+	if (xpt2046_sample_and_report(data)) {
+		k_work_reschedule(&data->dwork, K_MSEC(XPT2046_DRAG_POLL_MS));
+		return;
+	}
 
-		data->last_x = x;
-		data->last_y = y;
-		data->pressed = pressed;
+	data->pressed = false;
+	input_report_key(data->dev, INPUT_BTN_TOUCH, 0, true, K_FOREVER);
+}
 
-		/* Ensure that we send released event */
-		k_work_reschedule(&data->dwork, K_MSEC(100));
+static void xpt2046_work_handler(struct k_work *kw)
+{
+	struct xpt2046_data *data = CONTAINER_OF(kw, struct xpt2046_data, work);
+	struct xpt2046_config *config = (struct xpt2046_config *)data->dev->config;
+	int ret;
+
+	if (xpt2046_sample_and_report(data)) {
+		k_work_reschedule(&data->dwork, K_MSEC(XPT2046_DRAG_POLL_MS));
 	}
 
 	ret = gpio_add_callback(config->int_gpio.port, &data->int_gpio_cb);
