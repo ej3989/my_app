@@ -1,0 +1,4 @@
+name: waveshare_35c_drivers
+build:
+  cmake: .
+  kconfig: Kconfig

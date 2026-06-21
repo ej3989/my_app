@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config WAVESHARE_35C_INPUT_XPT2046
+	bool "Waveshare 3.5C XPT2046 touch panel driver"
+	default y
+	depends on DT_HAS_XPTEK_XPT2046_ENABLED
+	select SPI
+	help
+	  Enable the out-of-tree XPT2046 resistive touch driver used by the
+	  Waveshare/MHS 3.5 inch Raspberry Pi style SPI LCD.

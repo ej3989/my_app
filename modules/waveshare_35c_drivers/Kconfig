@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Waveshare 3.5C out-of-tree drivers"
+
+rsource "drivers/display/Kconfig"
+rsource "drivers/input/Kconfig"
+
+endmenu
