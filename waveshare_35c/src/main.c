@@ -132,6 +132,10 @@ struct ui_widgets {
     lv_obj_t *main_screen;
     lv_obj_t *detail_screen;
     lv_obj_t *keyboard_screen;
+    lv_obj_t *key_label;
+    lv_obj_t *key_cards[KEY_CARD_COUNT];
+    lv_obj_t *key_badge_label;
+    lv_obj_t *color_badge_label;
     lv_obj_t *keyboard_textarea;
     lv_obj_t *entered_text_label;
     lv_obj_t *brightness_value_label;
@@ -148,6 +152,20 @@ struct ui_widgets {
 };
 
 static struct ui_widgets ui;
+
+static const char *const key_card_texts[KEY_CARD_COUNT] = {
+    "KEY1",
+    "KEY2",
+    "KEY3",
+    "KEY4"
+};
+
+static const uint32_t key_card_codes[KEY_CARD_COUNT] = {
+    INPUT_KEY_1,
+    INPUT_KEY_2,
+    INPUT_KEY_3,
+    INPUT_KEY_4
+};
 #endif
 
 #if APP_USE_LVGL_UI
@@ -328,12 +346,8 @@ static void update_status_panel(uint32_t key_code, enum app_input_source source)
     }
 }
 
-static void set_label_for_key(lv_obj_t *key_label,
-                              lv_obj_t *key_badge_label,
-                              lv_obj_t *color_badge_label,
-                              lv_obj_t *key_cards[KEY_CARD_COUNT],
-                              uint32_t key_code,
-                              enum app_input_source source)
+static void update_main_screen_for_key(uint32_t key_code,
+                                       enum app_input_source source)
 {
     const char *text;
     const char *key_text;
@@ -350,24 +364,24 @@ static void set_label_for_key(lv_obj_t *key_label,
     lv_obj_set_style_bg_color(ui.detail_screen, bg_color, LV_PART_MAIN);
     lv_obj_set_style_bg_color(ui.keyboard_screen, bg_color, LV_PART_MAIN);
 
-    lv_label_set_text(key_label, text);
-    lv_obj_align(key_label, LV_ALIGN_RIGHT_MID, -58, 14);
+    lv_label_set_text(ui.key_label, text);
+    lv_obj_align(ui.key_label, LV_ALIGN_RIGHT_MID, -58, 14);
 
-    lv_label_set_text(key_badge_label, key_text);
-    lv_label_set_text_fmt(color_badge_label, "%s %s",
+    lv_label_set_text(ui.key_badge_label, key_text);
+    lv_label_set_text_fmt(ui.color_badge_label, "%s %s",
                           color_text,
                           source_text(source));
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
-        lv_obj_set_style_bg_color(key_cards[i], lv_color_hex(0x202020), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(key_cards[i], LV_OPA_60, LV_PART_MAIN);
-        lv_obj_set_style_border_color(key_cards[i], lv_color_hex(0x606060), LV_PART_MAIN);
-        lv_obj_set_style_border_width(key_cards[i], 1, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(ui.key_cards[i], lv_color_hex(0x202020), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ui.key_cards[i], LV_OPA_60, LV_PART_MAIN);
+        lv_obj_set_style_border_color(ui.key_cards[i], lv_color_hex(0x606060), LV_PART_MAIN);
+        lv_obj_set_style_border_width(ui.key_cards[i], 1, LV_PART_MAIN);
     }
 
-    lv_obj_set_style_bg_color(key_cards[selected_index], lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(key_cards[selected_index], LV_OPA_30, LV_PART_MAIN);
-    lv_obj_set_style_border_color(key_cards[selected_index], lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_border_width(key_cards[selected_index], 2, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.key_cards[selected_index], lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ui.key_cards[selected_index], LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.key_cards[selected_index], lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_border_width(ui.key_cards[selected_index], 2, LV_PART_MAIN);
 
     count = atomic_get(&app_state.key_press_counts[selected_index]);
     lv_label_set_text_fmt(ui.detail_source_label, "SOURCE: %s", source_text(source));
@@ -488,67 +502,30 @@ static void key_card_event_cb(lv_event_t *event)
                         false);
 }
 
-static void ui_thread(void *p1, void *p2, void *p3)
+static void create_screen_roots(void)
 {
-    ARG_UNUSED(p1);
-    ARG_UNUSED(p2);
-    ARG_UNUSED(p3);
-
-    lv_font_t *nanum_font = lv_tiny_ttf_create_data_ex(nanum_gothic_regular_ttf,
-                                                       nanum_gothic_regular_ttf_len,
-                                                       48,
-                                                       LV_FONT_KERNING_NONE,
-                                                       8);
-    lv_obj_t *header;
-    lv_obj_t *content;
-    lv_obj_t *button_row;
-    lv_obj_t *footer;
-    lv_obj_t *title_label;
-    lv_obj_t *key_label;
-    lv_obj_t *brightness_slider;
-    lv_obj_t *key_cards[KEY_CARD_COUNT];
-    lv_obj_t *key_card_labels[KEY_CARD_COUNT];
-    lv_obj_t *key_badge;
-    lv_obj_t *color_badge;
-    lv_obj_t *keyboard_badge;
-    lv_obj_t *key_badge_label;
-    lv_obj_t *color_badge_label;
-    lv_obj_t *keyboard_badge_label;
-    lv_obj_t *color_dropdown;
-    lv_obj_t *detail_title_label;
-    lv_obj_t *detail_back_card;
-    lv_obj_t *detail_back_label;
-    lv_obj_t *keyboard_title_label;
-    lv_obj_t *keyboard_hint_label;
-    lv_obj_t *keyboard_done_card;
-    lv_obj_t *keyboard_back_card;
-    lv_obj_t *keyboard_done_label;
-    lv_obj_t *keyboard_back_label;
-    lv_obj_t *keyboard;
-    static const char *const key_card_texts[KEY_CARD_COUNT] = {
-        "KEY1",
-        "KEY2",
-        "KEY3",
-        "KEY4"
-    };
-    static const uint32_t key_card_codes[KEY_CARD_COUNT] = {
-        INPUT_KEY_1,
-        INPUT_KEY_2,
-        INPUT_KEY_3,
-        INPUT_KEY_4
-    };
-    atomic_val_t displayed_event_id = -1;
-
-    printk("LVGL UI thread start\n");
-
-    init_ui_styles();
-
     ui.main_screen = lv_obj_create(NULL);
     ui.detail_screen = lv_obj_create(NULL);
     ui.keyboard_screen = lv_obj_create(NULL);
     lv_obj_add_style(ui.main_screen, &screen_style, LV_PART_MAIN);
     lv_obj_add_style(ui.detail_screen, &screen_style, LV_PART_MAIN);
     lv_obj_add_style(ui.keyboard_screen, &screen_style, LV_PART_MAIN);
+}
+
+static void create_main_screen(lv_font_t *title_font)
+{
+    lv_obj_t *header;
+    lv_obj_t *content;
+    lv_obj_t *button_row;
+    lv_obj_t *footer;
+    lv_obj_t *title_label;
+    lv_obj_t *brightness_slider;
+    lv_obj_t *key_card_labels[KEY_CARD_COUNT];
+    lv_obj_t *key_badge;
+    lv_obj_t *color_badge;
+    lv_obj_t *keyboard_badge;
+    lv_obj_t *keyboard_badge_label;
+    lv_obj_t *color_dropdown;
 
     header = lv_obj_create(ui.main_screen);
     content = lv_obj_create(ui.main_screen);
@@ -595,27 +572,29 @@ static void ui_thread(void *p1, void *p2, void *p3)
     ui.status_brightness_label = lv_label_create(ui.status_panel);
     ui.status_source_label = lv_label_create(ui.status_panel);
     ui.status_text_label = lv_label_create(ui.status_panel);
-    key_label = lv_label_create(content);
-    for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
-        key_cards[i] = lv_button_create(button_row);
-        key_card_labels[i] = lv_label_create(key_cards[i]);
+    ui.key_label = lv_label_create(content);
 
-        lv_obj_set_style_bg_color(key_cards[i], lv_color_hex(0x202020), LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(key_cards[i], LV_OPA_60, LV_PART_MAIN);
-        lv_obj_set_style_border_color(key_cards[i], lv_color_hex(0x606060), LV_PART_MAIN);
-        lv_obj_set_style_border_width(key_cards[i], 1, LV_PART_MAIN);
-        lv_obj_set_style_radius(key_cards[i], 6, LV_PART_MAIN);
-        lv_obj_set_size(key_cards[i], 92, 54);
-        lv_obj_add_event_cb(key_cards[i],
+    for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
+        ui.key_cards[i] = lv_button_create(button_row);
+        key_card_labels[i] = lv_label_create(ui.key_cards[i]);
+
+        lv_obj_set_style_bg_color(ui.key_cards[i], lv_color_hex(0x202020), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(ui.key_cards[i], LV_OPA_60, LV_PART_MAIN);
+        lv_obj_set_style_border_color(ui.key_cards[i], lv_color_hex(0x606060), LV_PART_MAIN);
+        lv_obj_set_style_border_width(ui.key_cards[i], 1, LV_PART_MAIN);
+        lv_obj_set_style_radius(ui.key_cards[i], 6, LV_PART_MAIN);
+        lv_obj_set_size(ui.key_cards[i], 92, 54);
+        lv_obj_add_event_cb(ui.key_cards[i],
                             key_card_event_cb,
                             LV_EVENT_CLICKED,
                             (void *)(uintptr_t)key_card_codes[i]);
     }
+
     key_badge = lv_obj_create(footer);
     color_badge = lv_obj_create(footer);
     keyboard_badge = lv_button_create(footer);
-    key_badge_label = lv_label_create(key_badge);
-    color_badge_label = lv_label_create(color_badge);
+    ui.key_badge_label = lv_label_create(key_badge);
+    ui.color_badge_label = lv_label_create(color_badge);
     keyboard_badge_label = lv_label_create(keyboard_badge);
 
     lv_obj_remove_style_all(key_badge);
@@ -641,18 +620,20 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_add_style(ui.status_brightness_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(ui.status_source_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(ui.status_text_label, &info_label_style, LV_PART_MAIN);
-    lv_obj_add_style(key_label, &key_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.key_label, &key_label_style, LV_PART_MAIN);
+
     for (size_t i = 0; i < KEY_CARD_COUNT; i++) {
         lv_obj_add_style(key_card_labels[i], &info_label_style, LV_PART_MAIN);
         lv_label_set_text(key_card_labels[i], key_card_texts[i]);
         lv_obj_add_flag(key_card_labels[i], LV_OBJ_FLAG_EVENT_BUBBLE);
         lv_obj_center(key_card_labels[i]);
     }
-    lv_obj_add_style(key_badge_label, &info_label_style, LV_PART_MAIN);
-    lv_obj_add_style(color_badge_label, &info_label_style, LV_PART_MAIN);
+
+    lv_obj_add_style(ui.key_badge_label, &info_label_style, LV_PART_MAIN);
+    lv_obj_add_style(ui.color_badge_label, &info_label_style, LV_PART_MAIN);
     lv_obj_add_style(keyboard_badge_label, &info_label_style, LV_PART_MAIN);
-    lv_obj_center(key_badge_label);
-    lv_obj_center(color_badge_label);
+    lv_obj_center(ui.key_badge_label);
+    lv_obj_center(ui.color_badge_label);
     lv_obj_center(keyboard_badge_label);
     lv_label_set_text(keyboard_badge_label, "KEYBOARD");
     lv_obj_add_flag(keyboard_badge_label, LV_OBJ_FLAG_EVENT_BUBBLE);
@@ -707,12 +688,10 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_align(ui.status_source_label, LV_ALIGN_TOP_LEFT, 0, 26);
     lv_obj_align(ui.status_text_label, LV_ALIGN_TOP_LEFT, 0, 39);
 
-    if (nanum_font != NULL) {
-        printk("Nanum Gothic font init OK\n");
-        lv_obj_set_style_text_font(key_label, nanum_font, LV_PART_MAIN);
+    if (title_font != NULL) {
+        lv_obj_set_style_text_font(ui.key_label, title_font, LV_PART_MAIN);
     } else {
-        printk("Nanum Gothic font init failed\n");
-        lv_obj_set_style_text_font(key_label, &lv_font_montserrat_48, LV_PART_MAIN);
+        lv_obj_set_style_text_font(ui.key_label, &lv_font_montserrat_48, LV_PART_MAIN);
     }
 
     lv_label_set_text(title_label, "Waveshare 3.5C");
@@ -726,6 +705,13 @@ static void ui_thread(void *p1, void *p2, void *p3)
                         color_dropdown_event_cb,
                         LV_EVENT_VALUE_CHANGED,
                         NULL);
+}
+
+static void create_detail_screen(lv_font_t *title_font)
+{
+    lv_obj_t *detail_title_label;
+    lv_obj_t *detail_back_card;
+    lv_obj_t *detail_back_label;
 
     detail_title_label = lv_label_create(ui.detail_screen);
     ui.detail_key_label = lv_label_create(ui.detail_screen);
@@ -744,8 +730,8 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_add_style(detail_back_card, &badge_style, LV_PART_MAIN);
     lv_obj_add_style(detail_back_label, &info_label_style, LV_PART_MAIN);
 
-    if (nanum_font != NULL) {
-        lv_obj_set_style_text_font(ui.detail_key_label, nanum_font, LV_PART_MAIN);
+    if (title_font != NULL) {
+        lv_obj_set_style_text_font(ui.detail_key_label, title_font, LV_PART_MAIN);
     } else {
         lv_obj_set_style_text_font(ui.detail_key_label, &lv_font_montserrat_48, LV_PART_MAIN);
     }
@@ -763,6 +749,17 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_add_event_cb(detail_back_card, back_card_event_cb, LV_EVENT_CLICKED, NULL);
     lv_label_set_text(detail_back_label, "BACK");
     lv_obj_center(detail_back_label);
+}
+
+static void create_keyboard_screen(void)
+{
+    lv_obj_t *keyboard_title_label;
+    lv_obj_t *keyboard_hint_label;
+    lv_obj_t *keyboard_done_card;
+    lv_obj_t *keyboard_back_card;
+    lv_obj_t *keyboard_done_label;
+    lv_obj_t *keyboard_back_label;
+    lv_obj_t *keyboard;
 
     keyboard_title_label = lv_label_create(ui.keyboard_screen);
     keyboard_hint_label = lv_label_create(ui.keyboard_screen);
@@ -812,6 +809,34 @@ static void ui_thread(void *p1, void *p2, void *p3)
     lv_obj_set_size(keyboard, 460, 160);
     lv_obj_align(keyboard, LV_ALIGN_BOTTOM_MID, 0, -4);
     lv_keyboard_set_textarea(keyboard, ui.keyboard_textarea);
+}
+
+static void ui_thread(void *p1, void *p2, void *p3)
+{
+    ARG_UNUSED(p1);
+    ARG_UNUSED(p2);
+    ARG_UNUSED(p3);
+
+    lv_font_t *nanum_font = lv_tiny_ttf_create_data_ex(nanum_gothic_regular_ttf,
+                                                       nanum_gothic_regular_ttf_len,
+                                                       48,
+                                                       LV_FONT_KERNING_NONE,
+                                                       8);
+    atomic_val_t displayed_event_id = -1;
+
+    printk("LVGL UI thread start\n");
+
+    init_ui_styles();
+    if (nanum_font != NULL) {
+        printk("Nanum Gothic font init OK\n");
+    } else {
+        printk("Nanum Gothic font init failed\n");
+    }
+
+    create_screen_roots();
+    create_main_screen(nanum_font);
+    create_detail_screen(nanum_font);
+    create_keyboard_screen();
 
     set_detail_screen_for_key(INPUT_KEY_1);
     lv_screen_load(ui.main_screen);
@@ -824,12 +849,8 @@ static void ui_thread(void *p1, void *p2, void *p3)
         atomic_val_t event_id = atomic_get(&app_state.event_id);
 
         if (event_id != displayed_event_id) {
-            set_label_for_key(key_label,
-                              key_badge_label,
-                              color_badge_label,
-                              key_cards,
-                              (uint32_t)key_code,
-                              (enum app_input_source)source);
+            update_main_screen_for_key((uint32_t)key_code,
+                                       (enum app_input_source)source);
             set_detail_screen_for_key((uint32_t)key_code);
             displayed_event_id = event_id;
         }
