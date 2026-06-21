@@ -117,6 +117,8 @@
          * display orientation. Keep the XPT2046 driver in the panel's native
          * 320x480 coordinate space and let this layer apply rotation = <90>.
          */
+        invert-x;
+        invert-y;
         status = "okay";
     };
 };
@@ -131,7 +133,7 @@
     pinctrl-names = "default";
 
     touch0: xpt2046@1 {
-        compatible = "xptek,xpt2046-waveshare-35c";
+        compatible = "xptek,xpt2046";
         reg = <1>;
         spi-max-frequency = <500000>;
         int-gpios = <&gpio0 17 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
@@ -143,8 +145,6 @@
         max-y = <3750>;
         z-threshold = <300>;
         reads = <4>;
-        invert-x;
-        invert-y;
         status = "okay";
     };
 };
