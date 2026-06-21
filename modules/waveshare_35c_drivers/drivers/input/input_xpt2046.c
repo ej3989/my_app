@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT xptek_xpt2046
+#define DT_DRV_COMPAT xptek_xpt2046_waveshare_35c
 
 #include <zephyr/drivers/spi.h>
 #include <zephyr/input/input.h>

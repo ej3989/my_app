@@ -1,8 +1,8 @@
 # Copyright (c) 2023 Seppo Takalo
 # SPDX-License-Identifier: Apache-2.0
 
-description: Driver for XPT2046 touch IC
-compatible: "xptek,xpt2046"
+description: Driver for XPT2046 touch IC with Waveshare 3.5C calibration options
+compatible: "xptek,xpt2046-waveshare-35c"
 
 include: spi-device.yaml
 

@@ -15,23 +15,13 @@ tracked without modifying the upstream Zephyr tree.
 ## Included bindings
 
 - `dts/bindings/display/ilitek,ili9486.yaml`
-- `dts/bindings/input/xptek,xpt2046.yaml`
+- `dts/bindings/input/xptek,xpt2046-waveshare-35c.yaml`
 
-These bindings are staged in the module, but `zephyr/module.yml` currently does
-not enable `settings.dts_root`. The local Zephyr tree still contains identical
-bindings, and enabling both roots at the same time causes a duplicate
-`compatible` error.
-
-After the local Zephyr copies are restored or removed, enable the module DTS
-root again:
-
-```yaml
-build:
-  cmake: .
-  kconfig: Kconfig
-  settings:
-    dts_root: .
-```
+These bindings are provided by the module through `settings.dts_root` in
+`zephyr/module.yml`. The touch binding intentionally uses
+`compatible: "xptek,xpt2046-waveshare-35c"` so it can coexist with Zephyr's
+built-in `xptek,xpt2046` binding while keeping the extra calibration properties
+used by this board.
 
 ## App integration
 
@@ -56,12 +46,11 @@ CONFIG_WAVESHARE_35C_INPUT_XPT2046=y
 
 ## Migration note
 
-During migration, the local Zephyr tree may still contain copied versions of
-the same driver and binding files. Once this module is confirmed to build and
-run, restore or remove the corresponding local driver changes under:
+The local Zephyr tree used during bring-up contained copied versions of these
+driver and binding files. Those local driver changes and duplicate bindings
+should stay restored/removed so this module remains the source of truth:
 
 - `zephyr/drivers/display/`
 - `zephyr/drivers/input/`
-
-Then move the DTS binding source of truth into this module by enabling
-`settings.dts_root` in `zephyr/module.yml`.
+- `zephyr/dts/bindings/display/`
+- `zephyr/dts/bindings/input/`
