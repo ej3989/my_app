@@ -81,8 +81,8 @@
         #size-cells = <0>;
         status = "okay";
 
-        lcd0: ili9486@0 {
-            compatible = "ilitek,ili9486";
+        lcd0: ili9488@0 {
+            compatible = "ilitek,ili9488";
             reg = <0>;
             status = "okay";
 
@@ -95,7 +95,6 @@
              */
             mipi-max-frequency = <40000000>;
             pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
-            interface-pixel-format = [55];
 
             /*
              * Match the Linux mhs35 overlay MADCTL value 0x28:
