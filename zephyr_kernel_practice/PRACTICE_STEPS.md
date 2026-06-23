@@ -2,6 +2,95 @@
 
 `src/main.c`를 수정하면서 이 파일을 체크리스트처럼 사용하세요.
 
+## `K_*_DEFINE` 매크로와 사용 함수
+
+`K_*_DEFINE(...)`처럼 대문자로 된 매크로는 보통 전역 kernel object를 정적으로 만들어줍니다.
+반대로 `k_*()`처럼 소문자로 시작하는 것은 실행 중에 호출하는 함수입니다.
+
+### 현재 예제에서 쓰는 `DEFINE`
+
+| 매크로 | 만들어지는 것 | 주 사용 함수 |
+| --- | --- | --- |
+| `K_THREAD_STACK_DEFINE(...)` | thread stack 메모리 | `k_thread_create()` |
+| `K_SEM_DEFINE(...)` | `struct k_sem` | `k_sem_take()`, `k_sem_give()` |
+| `K_MSGQ_DEFINE(...)` | `struct k_msgq`와 buffer | `k_msgq_put()`, `k_msgq_get()` |
+| `K_MUTEX_DEFINE(...)` | `struct k_mutex` | `k_mutex_lock()`, `k_mutex_unlock()` |
+
+현재 코드의 실제 이름은 아래처럼 연결됩니다.
+
+| 코드 | 실제 의미 |
+| --- | --- |
+| `K_THREAD_STACK_DEFINE(thread_a_stack, STACK_SIZE)` | `thread_a_stack`이라는 stack 메모리 생성 |
+| `K_THREAD_STACK_DEFINE(thread_b_stack, STACK_SIZE)` | `thread_b_stack`이라는 stack 메모리 생성 |
+| `K_SEM_DEFINE(signal_sem, 0, 1)` | count 0, limit 1인 semaphore 생성 |
+| `K_MSGQ_DEFINE(sample_msgq, sizeof(struct sample_msg), 8, 4)` | `sample_msg` 8개를 담는 message queue 생성 |
+| `K_MUTEX_DEFINE(shared_counter_mutex)` | 공유 변수 보호용 mutex 생성 |
+
+### 직접 선언한 뒤 init하는 객체
+
+`K_*_DEFINE(...)`를 쓰지 않고 `static struct ...`로 직접 선언한 뒤 `k_*_init(...)`으로 초기화할 수도 있습니다.
+현재 예제의 work와 timer는 이 방식을 씁니다.
+
+| 직접 선언 | 초기화 | 사용 |
+| --- | --- | --- |
+| `struct k_work` | `k_work_init()` | `k_work_submit()` |
+| `struct k_work_delayable` | `k_work_init_delayable()` | `k_work_schedule()`, `k_work_reschedule()` |
+| `struct k_timer` | `k_timer_init()` | `k_timer_start()`, `k_timer_stop()` |
+
+자주 쓰는 객체들은 대부분 아래처럼 두 가지 방식이 있습니다.
+
+| 정적 DEFINE 방식 | 직접 선언 + init 방식 | 주 사용 함수 |
+| --- | --- | --- |
+| `K_TIMER_DEFINE(...)` | `struct k_timer` + `k_timer_init()` | `k_timer_start()`, `k_timer_stop()` |
+| `K_WORK_DEFINE(...)` | `struct k_work` + `k_work_init()` | `k_work_submit()` |
+| `K_WORK_DELAYABLE_DEFINE(...)` | `struct k_work_delayable` + `k_work_init_delayable()` | `k_work_schedule()`, `k_work_reschedule()` |
+| `K_QUEUE_DEFINE(...)` | `struct k_queue` + `k_queue_init()` | `k_queue_append()`, `k_queue_get()` |
+| `K_EVENT_DEFINE(...)` | `struct k_event` + `k_event_init()` | `k_event_post()`, `k_event_wait()` |
+| `K_STACK_DEFINE(...)` | `struct k_stack` + `k_stack_init()` | `k_stack_push()`, `k_stack_pop()` |
+| `K_MUTEX_DEFINE(...)` | `struct k_mutex` + `k_mutex_init()` | `k_mutex_lock()`, `k_mutex_unlock()` |
+| `K_CONDVAR_DEFINE(...)` | `struct k_condvar` + `k_condvar_init()` | `k_condvar_wait()`, `k_condvar_signal()` |
+| `K_SEM_DEFINE(...)` | `struct k_sem` + `k_sem_init()` | `k_sem_take()`, `k_sem_give()` |
+| `K_MSGQ_DEFINE(...)` | `struct k_msgq` + `k_msgq_init()` | `k_msgq_put()`, `k_msgq_get()` |
+| `K_MBOX_DEFINE(...)` | `struct k_mbox` + `k_mbox_init()` | `k_mbox_put()`, `k_mbox_get()` |
+| `K_PIPE_DEFINE(...)` | `struct k_pipe` + `k_pipe_init()` | `k_pipe_write()`, `k_pipe_read()` |
+| `K_MEM_SLAB_DEFINE(...)` | `struct k_mem_slab` + `k_mem_slab_init()` | `k_mem_slab_alloc()`, `k_mem_slab_free()` |
+| `K_HEAP_DEFINE(...)` | `struct k_heap` + `k_heap_init()` | `k_heap_alloc()`, `k_heap_free()` |
+
+추가로 init 함수는 있지만 보통 paired `K_*_DEFINE` 없이 쓰는 객체도 있습니다.
+
+| 직접 선언 + init 방식 | 주 사용 함수 | 용도 |
+| --- | --- | --- |
+| `struct k_work_q` + `k_work_queue_init()` | `k_work_queue_start()` | 별도 workqueue thread 만들기 |
+| `struct k_work_poll` + `k_work_poll_init()` | `k_work_poll_submit()` | poll event 기반 work |
+| `struct k_poll_signal` + `k_poll_signal_init()` | `k_poll_signal_raise()` | `k_poll()`에 신호 전달 |
+| `struct k_poll_event` + `k_poll_event_init()` | `k_poll()` | 여러 이벤트 중 하나 기다리기 |
+
+### 예제에는 없지만 자주 쓰는 `DEFINE`
+
+| 매크로 | 만들어지는 것 | 주 사용 함수 |
+| --- | --- | --- |
+| `K_THREAD_DEFINE(...)` | thread + stack | 부팅 때 자동 시작 |
+| `K_TIMER_DEFINE(...)` | `struct k_timer` | `k_timer_start()`, `k_timer_stop()` |
+| `K_WORK_DEFINE(...)` | `struct k_work` | `k_work_submit()` |
+| `K_WORK_DELAYABLE_DEFINE(...)` | `struct k_work_delayable` | `k_work_schedule()`, `k_work_reschedule()` |
+| `K_QUEUE_DEFINE(...)` | `struct k_queue` | `k_queue_append()`, `k_queue_get()` |
+| `K_FIFO_DEFINE(...)` | `struct k_fifo` | `k_fifo_put()`, `k_fifo_get()` |
+| `K_LIFO_DEFINE(...)` | `struct k_lifo` | `k_lifo_put()`, `k_lifo_get()` |
+| `K_STACK_DEFINE(...)` | `struct k_stack` | `k_stack_push()`, `k_stack_pop()` |
+| `K_EVENT_DEFINE(...)` | `struct k_event` | `k_event_post()`, `k_event_wait()` |
+| `K_CONDVAR_DEFINE(...)` | `struct k_condvar` | `k_condvar_wait()`, `k_condvar_signal()` |
+| `K_MEM_SLAB_DEFINE(...)` | `struct k_mem_slab` | `k_mem_slab_alloc()`, `k_mem_slab_free()` |
+| `K_HEAP_DEFINE(...)` | `struct k_heap` | `k_heap_alloc()`, `k_heap_free()` |
+| `K_PIPE_DEFINE(...)` | `struct k_pipe` | `k_pipe_write()`, `k_pipe_read()` |
+| `K_MBOX_DEFINE(...)` | `struct k_mbox` | `k_mbox_put()`, `k_mbox_get()` |
+
+구분하는 기준:
+
+- `K_*_DEFINE(...)`: 컴파일 타임에 객체를 만들어주는 매크로입니다.
+- `static struct ...`: C 문법으로 직접 객체를 선언합니다.
+- `k_*_init(...)`: 이미 있는 객체를 실행 중 초기화합니다.
+- `k_*_take()`, `k_*_give()`, `k_*_put()`, `k_*_get()`, `k_*_submit()`: 초기화된 객체를 실제로 사용합니다.
+
 ## 1. Thread
 
 먼저 아래처럼 설정합니다.
