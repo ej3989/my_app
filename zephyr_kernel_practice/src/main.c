@@ -1,14 +1,16 @@
 /*
  * Zephyr kernel practice app.
  *
- * Change PRACTICE_EXERCISE and rebuild to focus on one primitive at a time.
+ * Set PRACTICE_EXERCISE in this file or pass -DPRACTICE_EXERCISE=N to CMake.
  */
 
 #include <zephyr/kernel.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/printk.h>
 
-#define PRACTICE_EXERCISE 1
+#ifndef PRACTICE_EXERCISE
+#define PRACTICE_EXERCISE 3
+#endif
 
 #define STACK_SIZE 1024
 #define THREAD_PRIORITY 5

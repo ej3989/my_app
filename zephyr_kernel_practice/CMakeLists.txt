@@ -6,3 +6,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(zephyr_kernel_practice)
 
 target_sources(app PRIVATE src/main.c)
+
+if(DEFINED PRACTICE_EXERCISE)
+  target_compile_definitions(app PRIVATE PRACTICE_EXERCISE=${PRACTICE_EXERCISE})
+endif()

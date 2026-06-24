@@ -1,6 +1,20 @@
 # 실습 단계
 
-`src/main.c`를 수정하면서 이 파일을 체크리스트처럼 사용하세요.
+`src/main.c`를 수정하거나 빌드 옵션으로 실습 번호를 바꾸면서 이 파일을 체크리스트처럼 사용하세요.
+
+실습 번호는 아래 두 방식 중 하나로 선택할 수 있습니다.
+
+```c
+#define PRACTICE_EXERCISE 1
+```
+
+또는 빌드할 때:
+
+```sh
+west build -p always -b esp32s3_devkitc/esp32s3/procpu EJ_APP/zephyr_kernel_practice -- -DPRACTICE_EXERCISE=1
+```
+
+빌드 옵션으로 넘긴 `-DPRACTICE_EXERCISE=N` 값이 있으면 `src/main.c`의 기본값보다 우선합니다.
 
 ## `K_*_DEFINE` 매크로와 사용 함수
 
@@ -93,7 +107,7 @@
 
 ## 1. Thread
 
-먼저 아래처럼 설정합니다.
+먼저 실습 번호를 `1`로 설정합니다.
 
 ```c
 #define PRACTICE_EXERCISE 1

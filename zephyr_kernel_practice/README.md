@@ -5,16 +5,25 @@ Zephyr kernel 기본기를 직접 수정하고 실행하면서 익히기 위한 
 
 ## 사용 방법
 
-`src/main.c`를 열고 아래 값을 바꿉니다.
+실습 번호는 두 가지 방식으로 고를 수 있습니다.
+
+첫 번째 방식은 `src/main.c`의 기본값을 바꾸는 것입니다.
 
 ```c
 #define PRACTICE_EXERCISE 1
 ```
 
-그 다음 Zephyr workspace root에서 빌드, 플래시, 모니터를 실행합니다.
+두 번째 방식은 빌드할 때 CMake 값으로 넘기는 것입니다.
 
 ```sh
-west build -p always -b esp32s3_devkitc/esp32s3/procpu EJ_APP/zephyr_kernel_practice
+west build -p always -b esp32s3_devkitc/esp32s3/procpu EJ_APP/zephyr_kernel_practice -- -DPRACTICE_EXERCISE=3
+```
+
+`-DPRACTICE_EXERCISE=3`처럼 넘긴 값이 있으면 `src/main.c`의 기본값보다 우선 적용됩니다.
+
+그 다음 Zephyr workspace root에서 플래시와 모니터를 실행합니다.
+
+```sh
 west flash
 west espressif monitor
 ```
