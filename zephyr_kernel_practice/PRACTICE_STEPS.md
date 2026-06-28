@@ -224,6 +224,44 @@ west build -p always -b esp32s3_devkitc/esp32s3/procpu EJ_APP/zephyr_kernel_prac
 - `use_mutex=false`일 때 최종 `shared_counter`가 항상 10이 되는지 관찰해보세요.
 - 다시 `use_mutex=true`로 돌리고, 두 thread가 같은 값을 동시에 읽는 일이 사라지는지 확인해보세요.
 
+## 8. Button Event App Skeleton
+
+`PRACTICE_EXERCISE`를 `8`로 바꿉니다.
+
+이번 실습은 앞에서 배운 요소를 하나의 작은 앱 구조로 묶는 뼈대입니다.
+
+흐름:
+
+```text
+GPIO ISR
+  -> button_debounce_work 예약
+  -> button_debounce_handler에서 버튼 확정
+  -> app_event_msgq에 이벤트 넣기
+  -> app_event_thread에서 이벤트 처리
+  -> status_timer가 1초마다 status_work 실행
+```
+
+읽어볼 함수:
+
+- `button_isr()`
+- `button_debounce_handler()`
+- `app_event_thread()`
+- `status_timer_handler()`
+- `status_work_handler()`
+- `run_button_event_app_demo()`
+
+생각해볼 질문:
+
+- ISR에서는 왜 `k_msgq_put()`을 바로 하지 않고 delayable work를 예약할까요?
+- `app_event_thread()`가 직접 GPIO를 읽지 않고 message queue를 기다리는 이유는 무엇일까요?
+- `state.button_count`와 `state.last_pressed_ms`는 왜 mutex로 보호할까요?
+
+직접 수정해볼 것:
+
+- debounce 시간을 30 ms에서 100 ms로 바꿔보세요.
+- status 출력 주기를 1초에서 2초로 바꿔보세요.
+- 버튼을 5번 누르면 timer를 멈추도록 바꿔보세요.
+
 ## 확인 방법
 
 처음에는 새 파일을 만들기보다 `src/main.c` 안에서 한 실습 함수만 직접 바꾸는 방식을 추천합니다.

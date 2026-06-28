@@ -5,11 +5,13 @@
  */
 
 #include <zephyr/kernel.h>
+#include <zephyr/device.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/sys/printk.h>
 
 #ifndef PRACTICE_EXERCISE
-#define PRACTICE_EXERCISE 3
+#define PRACTICE_EXERCISE 8
 #endif
 
 #define STACK_SIZE 1024
@@ -20,9 +22,40 @@ struct sample_msg {
 	int value;
 };
 
+enum app_event_type {
+	APP_EVENT_BUTTON_PRESSED = 1,
+};
+
+struct app_event {
+	enum app_event_type type;
+	int value;
+	int64_t uptime_ms;
+};
+
+struct app_state {
+	int button_count;
+	int64_t last_pressed_ms;
+};
+struct ej_app_state{
+	int button_count;
+	int64_t last_pressed_ms;
+};
+
+enum ej_event_type {
+	EJ_APP_EVENT_BUTTON_PRESSED = 1,
+};
+
+struct ej_event {
+	enum ej_event_type type;
+	int value;
+	int64_t uptime_ms;
+};
+
 K_MSGQ_DEFINE(sample_msgq, sizeof(struct sample_msg), 8, 4);
+K_MSGQ_DEFINE(app_event_msgq, sizeof(struct app_event), 8, 4);
 K_SEM_DEFINE(signal_sem, 0, 1);
 K_MUTEX_DEFINE(shared_counter_mutex);
+K_MUTEX_DEFINE(app_state_mutex);
 
 K_THREAD_STACK_DEFINE(thread_a_stack, STACK_SIZE);
 K_THREAD_STACK_DEFINE(thread_b_stack, STACK_SIZE);
@@ -34,11 +67,28 @@ static struct k_work immediate_work;
 static struct k_work_delayable delayable_work;
 static struct k_work timer_work;
 static struct k_timer practice_timer;
+static struct k_work_delayable button_debounce_work;
+static struct k_work status_work;
+static struct k_timer status_timer;
+
+static struct k_work_delayable ej_delay_work;
+static struct k_work ej_kwork;
+static struct k_timer ej_timer;
+static struct ej_app_state ej_state;
+static struct gpio_callback ej_button_cb;
+static struct k_thread ej_thread_a;
+
+K_THREAD_STACK_DEFINE(ej_thread_a_stack, STACK_SIZE);
+K_MUTEX_DEFINE(ej_app_state_mutex);
+K_MSGQ_DEFINE(ej_event_msgq, sizeof(struct ej_event), 8, _Alignof(struct ej_event));
 
 static atomic_t fake_irq_count;
 static atomic_t delayable_count;
 static atomic_t timer_count;
 static int shared_counter;
+static struct app_state state;
+static const struct gpio_dt_spec button = GPIO_DT_SPEC_GET(DT_ALIAS(sw0), gpios);
+static struct gpio_callback button_cb;
 
 static void thread_counter(void *name_ptr, void *start_ptr, void *unused)
 {
@@ -281,6 +331,251 @@ static void run_mutex_demo(void)
 	printk("[main] final shared_counter=%d\n", shared_counter);
 }
 
+static void button_isr(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(pins);
+
+	k_work_reschedule(&button_debounce_work, K_MSEC(30));
+}
+
+static void button_debounce_handler(struct k_work *work)
+{
+	struct app_event event = {
+		.type = APP_EVENT_BUTTON_PRESSED,
+		.value = 1,
+		.uptime_ms = k_uptime_get(),
+	};
+
+	ARG_UNUSED(work);
+
+	if (gpio_pin_get_dt(&button) > 0) {
+		k_msgq_put(&app_event_msgq, &event, K_NO_WAIT);
+	}
+}
+
+static void app_event_thread(void *unused_a, void *unused_b, void *unused_c)
+{
+	ARG_UNUSED(unused_a);
+	ARG_UNUSED(unused_b);
+	ARG_UNUSED(unused_c);
+
+	while (1) {
+		struct app_event event;
+
+		k_msgq_get(&app_event_msgq, &event, K_FOREVER);
+
+		if (event.type == APP_EVENT_BUTTON_PRESSED) {
+			int button_count;
+
+			k_mutex_lock(&app_state_mutex, K_FOREVER);
+			state.button_count += event.value;
+			state.last_pressed_ms = event.uptime_ms;
+			button_count = state.button_count;
+			k_mutex_unlock(&app_state_mutex);
+
+			printk("[app] button event, count=%d\n", button_count);
+		}
+	}
+}
+
+
+static void status_work_handler(struct k_work *work)
+{
+	int button_count;
+	int64_t last_pressed_ms;
+
+	ARG_UNUSED(work);
+
+	k_mutex_lock(&app_state_mutex, K_FOREVER);
+	button_count = state.button_count;
+	last_pressed_ms = state.last_pressed_ms;
+	k_mutex_unlock(&app_state_mutex);
+
+	printk("[status] button_count=%d last_pressed_ms=%lld\n",
+	       button_count, last_pressed_ms);
+}
+
+static void status_timer_handler(struct k_timer *timer)
+{
+	ARG_UNUSED(timer);
+
+	k_work_submit(&status_work);
+}
+
+static void run_button_event_app_demo(void)
+{
+	int ret;
+
+	printk("exercise 8: GPIO ISR, debounce work, msgq, app thread, timer\n");
+
+	if (!gpio_is_ready_dt(&button)) {
+		printk("[button] device is not ready\n");
+		return;
+	}
+
+	k_work_init_delayable(&button_debounce_work, button_debounce_handler);
+	k_work_init(&status_work, status_work_handler);
+	k_timer_init(&status_timer, status_timer_handler, NULL);
+
+	state.button_count = 0;
+	state.last_pressed_ms = 0;
+
+	ret = gpio_pin_configure_dt(&button, GPIO_INPUT);
+	if (ret != 0) {
+		printk("[button] configure failed: %d\n", ret);
+		return;
+	}
+
+	gpio_init_callback(&button_cb, button_isr, BIT(button.pin));
+	ret = gpio_add_callback(button.port, &button_cb);
+	if (ret != 0) {
+		printk("[button] add callback failed: %d\n", ret);
+		return;
+	}
+
+	ret = gpio_pin_interrupt_configure_dt(&button, GPIO_INT_EDGE_TO_ACTIVE);
+	if (ret != 0) {
+		printk("[button] interrupt configure failed: %d\n", ret);
+		return;
+	}
+
+	k_thread_create(&thread_a, thread_a_stack, STACK_SIZE,
+			app_event_thread, NULL, NULL, NULL,
+			THREAD_PRIORITY, 0, K_NO_WAIT);
+
+	k_timer_start(&status_timer, K_SECONDS(1), K_SECONDS(1));
+	k_sleep(K_SECONDS(20));
+	k_timer_stop(&status_timer);
+	printk("[main] exercise 8 stopped\n");
+}
+
+static void ej_delayable_handler(struct k_work *works)
+{
+	struct ej_event event = {
+		.type = EJ_APP_EVENT_BUTTON_PRESSED,
+		.value = 1,
+		.uptime_ms = k_uptime_get(),
+	};
+
+	ARG_UNUSED(works);
+
+	if(gpio_pin_get_dt(&button) > 0){
+
+		k_msgq_put(&ej_event_msgq,&event,K_NO_WAIT);
+	}
+
+	return;
+} 
+static void ej_kwork_handler(struct k_work *works)
+{
+	int button_count = 0;
+	int64_t button_second = 0;
+	ARG_UNUSED(works);
+
+	k_mutex_lock(&ej_app_state_mutex,K_FOREVER);
+	button_count = ej_state.button_count;
+	button_second = ej_state.last_pressed_ms;
+	k_mutex_unlock(&ej_app_state_mutex);
+
+	printk("[State] Button state: count %d Button release time %lld\n", 
+		button_count, button_second);
+	return;
+}
+
+static void ej_timer_handler(struct k_timer *timers)
+{
+	ARG_UNUSED(timers);
+	
+	k_work_submit(&ej_kwork);
+	return;
+}
+static void ej_button_isr(const struct device *dev, struct gpio_callback *cb, gpio_port_pins_t pins)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(cb);
+	ARG_UNUSED(pins);
+
+	k_work_reschedule(&ej_delay_work,K_MSEC(20));
+
+	return;
+}
+
+static void ej_thread_handler(void *unused_a, void *unused_b, void *unused_c)
+{
+
+
+	ARG_UNUSED(unused_a);
+	ARG_UNUSED(unused_b);
+	ARG_UNUSED(unused_c);
+
+	while(1){
+
+		struct ej_event event;
+		k_msgq_get(&ej_event_msgq,&event,K_FOREVER);
+		if(event.type == APP_EVENT_BUTTON_PRESSED){
+			int button_count;
+
+			k_mutex_lock(&ej_app_state_mutex,K_FOREVER);
+			ej_state.button_count += event.value;
+			ej_state.last_pressed_ms = event.uptime_ms;
+			button_count = ej_state.button_count;
+			k_mutex_unlock(&ej_app_state_mutex);
+
+			printk("[App] button event count: %d\n",button_count);
+
+
+		}
+	}
+
+	return;
+}
+static void run_button_event_app_manual_demo(void)
+{
+	int ret;
+	printk("exercixe 8: manual \n");
+	if(!gpio_is_ready_dt(&button)){
+		printk("[button] device is not ready\n");
+		return;
+	}
+	k_work_init_delayable(&ej_delay_work,ej_delayable_handler);
+	k_work_init(&ej_kwork,ej_kwork_handler);
+	k_timer_init(&ej_timer,ej_timer_handler,NULL);
+
+	state.button_count = 0;
+	state.last_pressed_ms = 0;
+
+	ret = gpio_pin_configure_dt(&button, GPIO_INPUT);
+	if(ret != 0){
+		printk("[Button] Configure fail:%d \n",ret);
+		return;
+	}
+
+	gpio_init_callback(&ej_button_cb,ej_button_isr,BIT(button.pin));
+	ret = gpio_add_callback(button.port, &ej_button_cb);
+	if(ret != 0){
+		printk("[Button] Add callback fail : %d\n",ret);
+		return;
+	}
+
+	ret = gpio_pin_interrupt_configure_dt(&button, GPIO_INT_EDGE_TO_ACTIVE);
+	if(ret != 0){
+		printk("[Button] interrupt configure fail :%d\n",ret);
+		return;
+	}
+	k_thread_create(&ej_thread_a, ej_thread_a_stack,STACK_SIZE,
+					ej_thread_handler,NULL,NULL,NULL,
+					THREAD_PRIORITY,0,K_NO_WAIT );
+
+	k_timer_start(&ej_timer, K_SECONDS(1), K_SECONDS(1));
+	k_sleep(K_SECONDS(20));
+	k_timer_stop(&ej_timer);
+
+	printk("[Main] exercise 8 end \n");
+			
+} 
+
 int main(void)
 {
 	printk("\nZephyr kernel practice app started\n");
@@ -300,8 +595,11 @@ int main(void)
 	run_timer_demo();
 #elif PRACTICE_EXERCISE == 7
 	run_mutex_demo();
+#elif PRACTICE_EXERCISE == 8
+	// run_button_event_app_demo();
+	run_button_event_app_manual_demo();
 #else
-#error "Set PRACTICE_EXERCISE to a value from 1 to 7"
+#error "Set PRACTICE_EXERCISE to a value from 1 to 8"
 #endif
 
 	printk("\nExercise finished. Change PRACTICE_EXERCISE and rebuild for the next one.\n");
