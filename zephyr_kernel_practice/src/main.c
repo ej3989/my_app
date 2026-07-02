@@ -80,7 +80,7 @@ static struct k_thread ej_thread_a;
 
 K_THREAD_STACK_DEFINE(ej_thread_a_stack, STACK_SIZE);
 K_MUTEX_DEFINE(ej_app_state_mutex);
-K_MSGQ_DEFINE(ej_event_msgq, sizeof(struct ej_event), 8, _Alignof(struct ej_event));
+K_MSGQ_DEFINE(ej_event_msgq, sizeof(struct ej_event), 8, 4);
 
 static atomic_t fake_irq_count;
 static atomic_t delayable_count;

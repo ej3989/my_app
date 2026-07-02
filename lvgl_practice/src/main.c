@@ -5,15 +5,11 @@
 #include <lvgl_zephyr.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/display.h>
-#include <zephyr/drivers/led.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 
 #define DISPLAY_NODE DT_CHOSEN(zephyr_display)
 #define DISPLAY_DEV DEVICE_DT_GET(DISPLAY_NODE)
-
-#define LCD_BL_NODE DT_NODELABEL(lcd_bl)
-#define LCD_BL_DEV DEVICE_DT_GET(LCD_BL_NODE)
 
 static lv_obj_t *counter_label;
 static uint32_t click_count;
@@ -69,20 +65,9 @@ int main(void)
         return 0;
     }
 
-    if (!device_is_ready(LCD_BL_DEV)) {
-        printk("LCD backlight device is not ready\n");
-        return 0;
-    }
-
     ret = lvgl_init();
     if (ret < 0) {
         printk("LVGL init failed: %d\n", ret);
-        return 0;
-    }
-
-    ret = led_on(LCD_BL_DEV, 0);
-    if (ret < 0) {
-        printk("LCD backlight on failed: %d\n", ret);
         return 0;
     }
 

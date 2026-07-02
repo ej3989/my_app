@@ -58,15 +58,6 @@
      *   TP_CS               -> GPIO16
      *   TP_IRQ              -> GPIO17
      */
-    lcd_bl: lcd_bl {
-        compatible = "gpio-leds";
-
-        backlight {
-            gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
-            label = "LCD Backlight";
-        };
-    };
-
     lcd_dbi: mipi_dbi {
         compatible = "zephyr,mipi-dbi-spi";
         spi-dev = <&spi2>;
