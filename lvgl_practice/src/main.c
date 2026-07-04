@@ -5,15 +5,29 @@
 #include <lvgl_zephyr.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/display.h>
+#include <zephyr/drivers/led_strip.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 
 #define DISPLAY_NODE DT_CHOSEN(zephyr_display)
 #define DISPLAY_DEV DEVICE_DT_GET(DISPLAY_NODE)
+#define LED_STRIP_NODE DT_ALIAS(led_strip)
+#define LED_STRIP_DEV DEVICE_DT_GET(LED_STRIP_NODE)
 
 static lv_obj_t *counter_label;
 static uint32_t click_count;
-
+static struct led_rgb led_strip_pixels[] = {
+    { .r = 10, .g = 0, .b = 0 },    /* Red */
+    { .r = 0, .g = 10, .b = 0 },    /* Green */
+    { .r = 0, .g = 0, .b = 10 },    /* Blue */
+    { .r = 10, .g = 10, .b = 0 },   /* Yellow */
+    { .r = 0, .g = 10, .b = 10 },   /* Cyan */
+    { .r = 10, .g = 0, .b = 10 },   /* Magenta */
+    { .r = 10, .g = 10, .b = 10 },  /* White */
+    { .r = 10, .g = 5, .b = 0 },    /* Orange */
+    { .r = 5, .g = 0, .b = 10 },    /* Purple */
+    { .r = 2, .g = 2, .b = 2 },     /* Dim white */
+};
 static void button_event_cb(lv_event_t *event)
 {
     if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
@@ -22,6 +36,8 @@ static void button_event_cb(lv_event_t *event)
 
     click_count++;
     lv_label_set_text_fmt(counter_label, "Clicked: %u", click_count);
+    uint8_t color_index = click_count % ARRAY_SIZE(led_strip_pixels);
+    led_strip_update_rgb(LED_STRIP_DEV, &led_strip_pixels[color_index], 1);
 }
 
 static void create_first_screen(void)
@@ -62,6 +78,11 @@ int main(void)
 
     if (!device_is_ready(DISPLAY_DEV)) {
         printk("Display device is not ready\n");
+        return 0;
+    }
+
+    if (!device_is_ready(LED_STRIP_DEV)) {
+        printk("LED strip device is not ready\n");
         return 0;
     }
 

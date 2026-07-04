@@ -162,7 +162,7 @@
     };
 };
 
-i2s_led: &i2s0 {
+&i2s0 {
     status = "okay";
 
     dmas = <&dma 3>;
