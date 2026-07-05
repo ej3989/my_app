@@ -41,6 +41,25 @@ static struct led_rgb pending_led_pixel;
 K_MUTEX_DEFINE(pending_led_lock);
 static struct k_work led_strip_work;
 
+#if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
+static void lvgl_ej_print_stack_usage(void)
+{
+	size_t unused;
+	size_t total;
+	int ret;
+
+	ret = k_thread_stack_space_get(&lvgl_ej_thread, &unused);
+	if (ret < 0) {
+		printk("LVGL stack check failed: %d\n", ret);
+		return;
+	}
+
+	total = K_THREAD_STACK_SIZEOF(lvgl_ej_thread_stack);
+	printk("LVGL stack: used=%zu unused=%zu total=%zu\n",
+	       total - unused, unused, total);
+}
+#endif /* CONFIG_LVGL_EJ_STACK_USAGE_LOG */
+
 static void led_strip_work_handler(struct k_work *work)
 {
 	struct led_rgb pixel;
@@ -74,12 +93,26 @@ static void button_event_cb(lv_event_t *event)
 
 static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 {
+#if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
+	int64_t last_stack_log_time = 0;
+#endif
+
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 
 	while (1) {
+#if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
+		int64_t now = k_uptime_get();
+#endif
 		uint32_t sleep_ms = lv_timer_handler();
+
+#if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
+		if ((now - last_stack_log_time) >= CONFIG_LVGL_EJ_STACK_LOG_INTERVAL_MS) {
+			last_stack_log_time = now;
+			lvgl_ej_print_stack_usage();
+		}
+#endif
 
 		if (sleep_ms == 0) {
 			sleep_ms = 1;

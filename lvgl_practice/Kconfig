@@ -1,0 +1,18 @@
+mainmenu "LVGL practice"
+
+config LVGL_EJ_STACK_USAGE_LOG
+	bool "Print LVGL EJ stack usage"
+	select INIT_STACKS
+	select THREAD_STACK_INFO
+	help
+	  Enable periodic printk output for the LVGL EJ thread stack usage.
+	  This is intended for debugging stack size only.
+
+config LVGL_EJ_STACK_LOG_INTERVAL_MS
+	int "LVGL EJ stack usage log interval in milliseconds"
+	default 5000
+	depends on LVGL_EJ_STACK_USAGE_LOG
+	help
+	  Interval used for periodic LVGL EJ thread stack usage output.
+
+source "Kconfig.zephyr"
