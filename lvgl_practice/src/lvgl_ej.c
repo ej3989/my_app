@@ -41,6 +41,9 @@ static struct led_rgb pending_led_pixel;
 K_MUTEX_DEFINE(pending_led_lock);
 static struct k_work led_strip_work;
 
+#define BUTTON_ID_MAIN 0
+#define BUTTON_ID_SUB 1
+
 #if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
 static void lvgl_ej_print_stack_usage(void)
 {
@@ -79,16 +82,25 @@ static void button_event_cb(lv_event_t *event)
 		return;
 	}
 
-	click_count++;
-	lv_label_set_text_fmt(counter_label, "Clicked: %u", click_count);
+	uintptr_t user_id = (uintptr_t)lv_event_get_user_data(event);
+	if (user_id == BUTTON_ID_MAIN){
+		click_count++;
+		lv_label_set_text_fmt(counter_label, "Clicked: %u", click_count);
 
-	uint8_t color_index = click_count % ARRAY_SIZE(led_strip_pixels);
+	} else if (user_id == BUTTON_ID_SUB) {
+		
+		static uint32_t led_count = 0;
+		uint8_t color_index = led_count % ARRAY_SIZE(led_strip_pixels);
 
-	k_mutex_lock(&pending_led_lock,K_FOREVER);
-	pending_led_pixel = led_strip_pixels[color_index];
-	k_mutex_unlock(&pending_led_lock);
+		k_mutex_lock(&pending_led_lock,K_FOREVER);
+		pending_led_pixel = led_strip_pixels[color_index];
+		k_mutex_unlock(&pending_led_lock);
 
-	k_work_submit(&led_strip_work);
+		k_work_submit(&led_strip_work);
+		led_count++;
+	}
+
+
 }
 
 static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
@@ -168,17 +180,30 @@ int lvgl_ej_start(void)
 
 	lv_obj_t *button = lv_button_create(screen);
 
-	lv_obj_set_size(button, 160, 56);
-	lv_obj_align(button, LV_ALIGN_CENTER, 0, 56);
-	lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, NULL);
+	lv_obj_set_size(button, 110, 56);
+	lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -4);
+	lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)BUTTON_ID_MAIN);
 
 	lv_obj_t *button_label = lv_label_create(button);
 
 	lv_label_set_text(button_label, "Tap");
 	lv_obj_center(button_label);
 
+	lv_obj_t *button1 = lv_button_create(screen);
+
+	lv_obj_set_size(button1, 110, 56);
+	lv_obj_align(button1,LV_ALIGN_BOTTOM_LEFT,0,-4);
+	lv_obj_add_event_cb(button1, button_event_cb,LV_EVENT_CLICKED, (void *)(uintptr_t)BUTTON_ID_SUB);
+
+	lv_obj_t *button1_label = lv_label_create(button1);
+	lv_label_set_text(button1_label,"LED");
+	lv_obj_center(button1_label);
+
+
 	lv_refr_now(NULL);
 
+
+	led_strip_update_rgb(LED_STRIP_DEV,&led_strip_pixels[0],1);
 	k_thread_create(&lvgl_ej_thread, lvgl_ej_thread_stack,
 			K_THREAD_STACK_SIZEOF(lvgl_ej_thread_stack), lvgl_ej_thread_handler,
 			NULL, NULL, NULL, LVGL_EJ_THREAD_PRIORITY, 0, K_NO_WAIT);
