@@ -42,6 +42,7 @@ enum button_id_ej {
 	BUTTON_ID_MAIN,
 	BUTTON_ID_SUB,
 	BUTTON_ID_MSGBOX,
+	BUTTON_ID_SETUP,
 };
 
 struct user_data_ej {
@@ -57,6 +58,7 @@ static void led_strip_work_handler(struct k_work *work);
 static void log_box_add_text(const char *text);
 static void button_event_cb(lv_event_t *event);
 static void box_button_event_cb(lv_event_t *event);
+static void screen_back_event_cb(lv_event_t *event);
 static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3);
 
 #if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
@@ -109,6 +111,18 @@ static void box_button_event_cb(lv_event_t *event)
 	lv_obj_t *mbox = (lv_obj_t *)lv_event_get_user_data(event);
 	lv_msgbox_close(mbox);
 }
+
+static void screen_back_event_cb(lv_event_t *event)
+{
+	if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
+		return;
+	}
+
+	lv_obj_t *screen = lv_event_get_user_data(event);
+
+	lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 300, 0, false);
+}
+
 static void button_event_cb(lv_event_t *event)
 {
 	if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
@@ -145,6 +159,8 @@ static void button_event_cb(lv_event_t *event)
 		lv_obj_t *ok_btn = lv_msgbox_add_footer_button(mbox, "OK");
 		lv_obj_set_size(ok_btn, 80, 40);
 		lv_obj_add_event_cb(ok_btn, box_button_event_cb, LV_EVENT_CLICKED, mbox);
+	}else if (user_data->button_id == BUTTON_ID_SETUP) {
+		lv_screen_load_anim(user_data->screen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
 	}
 }
 
@@ -185,6 +201,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	}
 
 	lv_obj_t *main_screen = lv_obj_create(NULL);
+	lv_obj_t *setup_screen = lv_obj_create(NULL);
 
 	lv_obj_set_style_bg_color(main_screen, lv_color_hex(0x20252b), LV_PART_MAIN);
 	lv_obj_set_style_pad_all(main_screen, 24, LV_PART_MAIN);
@@ -195,6 +212,16 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_obj_set_style_text_color(title, lv_color_hex(0x00ffff), LV_PART_MAIN);
 	lv_obj_set_style_text_font(title, &lv_font_montserrat_24, LV_PART_MAIN);
 	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
+
+	lv_obj_t *setup_title = lv_label_create(setup_screen);
+	lv_label_set_text(setup_title, "Setup Screen");
+	lv_obj_set_style_text_color(setup_title, lv_color_hex(0x00ffff), LV_PART_MAIN);
+	lv_obj_set_style_text_font(setup_title, &lv_font_montserrat_24, LV_PART_MAIN);
+	lv_obj_align(setup_title, LV_ALIGN_TOP_MID, 0, 50);
+	lv_obj_set_style_bg_color(setup_screen, lv_color_hex(0x20252b), LV_PART_MAIN);
+	lv_obj_set_style_pad_all(setup_screen, 24, LV_PART_MAIN);
+	lv_obj_add_flag(setup_screen, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(setup_screen, screen_back_event_cb, LV_EVENT_CLICKED, main_screen);
 
 	counter_label = lv_label_create(main_screen);
 	lv_label_set_text(counter_label, "Clicked: 0");
@@ -207,8 +234,8 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	};
 
 	button_data.screen = main_screen;
-	lv_obj_set_size(button, 90, 44);
-	lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -4);
+	lv_obj_set_size(button, 74, 40);
+	lv_obj_align(button, LV_ALIGN_BOTTOM_MID, -50, -4);
 	lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, &button_data);
 
 	lv_obj_t *button_label = lv_label_create(button);
@@ -221,8 +248,8 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 		.button_id = BUTTON_ID_SUB,
 	};
 
-	lv_obj_set_size(button1, 90, 44);
-	lv_obj_align(button1, LV_ALIGN_BOTTOM_LEFT, 0, -4);
+	lv_obj_set_size(button1, 74, 40);
+	lv_obj_align(button1, LV_ALIGN_BOTTOM_MID, -160, -4);
 	button1_data.screen = main_screen;
 	lv_obj_add_event_cb(button1, button_event_cb, LV_EVENT_CLICKED,
 			    &button1_data);
@@ -237,8 +264,8 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 		.button_id = BUTTON_ID_MSGBOX,
 	};
 
-	lv_obj_set_size(button2, 90, 44);
-	lv_obj_align(button2, LV_ALIGN_BOTTOM_RIGHT, 0, -4);
+	lv_obj_set_size(button2, 74, 40);
+	lv_obj_align(button2, LV_ALIGN_BOTTOM_MID, 50, -4);
 	button2_data.screen = main_screen;
 	lv_obj_add_event_cb(button2, button_event_cb, LV_EVENT_CLICKED,
 			    &button2_data);
@@ -246,6 +273,20 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_obj_t *button2_label = lv_label_create(button2);
 	lv_label_set_text(button2_label, "MsgBox");
 	lv_obj_center(button2_label);
+
+	lv_obj_t *button3 = lv_button_create(main_screen);
+	static struct user_data_ej button3_data = {
+		.button_id = BUTTON_ID_SETUP,
+	};
+	lv_obj_set_size(button3, 74, 40);
+	lv_obj_align(button3, LV_ALIGN_BOTTOM_MID, 160, -4);
+	button3_data.screen = setup_screen;
+	lv_obj_add_event_cb(button3, button_event_cb, LV_EVENT_CLICKED,
+			    &button3_data);
+	lv_obj_t *button3_label = lv_label_create(button3);
+	lv_label_set_text(button3_label, "Setup");
+	lv_obj_center(button3_label);
+
 
 	lv_obj_t *mbox = lv_msgbox_create(NULL);
 	lv_msgbox_add_title(mbox, "Title");
@@ -267,6 +308,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_label_set_long_mode(log_label, LV_LABEL_LONG_WRAP);
 	lv_label_set_text(log_label, "Log start\n");
 
+	lv_screen_load(main_screen);
 	lv_refr_now(NULL);
 
 	led_strip_update_rgb(LED_STRIP_DEV, &led_strip_pixels[0], 1);
