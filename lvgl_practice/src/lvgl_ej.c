@@ -38,13 +38,20 @@ static struct led_rgb led_strip_pixels[] = {
 	{ .r = 2, .g = 2, .b = 2 },    /* Dim white */
 };
 
+enum button_id_ej {
+	BUTTON_ID_MAIN,
+	BUTTON_ID_SUB,
+	BUTTON_ID_MSGBOX,
+};
+
+struct user_data_ej {
+	lv_obj_t *screen;
+	enum button_id_ej button_id;
+};
+
 static struct led_rgb pending_led_pixel;
 K_MUTEX_DEFINE(pending_led_lock);
 static struct k_work led_strip_work;
-
-#define BUTTON_ID_MAIN 0
-#define BUTTON_ID_SUB 1
-#define BUTTON_ID_MSGBOX 2
 
 static void led_strip_work_handler(struct k_work *work);
 static void log_box_add_text(const char *text);
@@ -108,16 +115,16 @@ static void button_event_cb(lv_event_t *event)
 		return;
 	}
 
-	uintptr_t user_id = (uintptr_t)lv_event_get_user_data(event);
+	struct user_data_ej *user_data = (struct user_data_ej *)lv_event_get_user_data(event);
 
-	if (user_id == BUTTON_ID_MAIN) {
+	if (user_data->button_id == BUTTON_ID_MAIN) {
 		click_count++;
 		lv_label_set_text_fmt(counter_label, "Clicked: %u", click_count);
 		char buf[64];
 
 		snprintk(buf, sizeof(buf), "Clicked: %u\n", click_count);
 		log_box_add_text(buf);
-	} else if (user_id == BUTTON_ID_SUB) {
+	} else if (user_data->button_id == BUTTON_ID_SUB) {
 		static uint32_t led_count = 0;
 		uint8_t color_index = led_count % ARRAY_SIZE(led_strip_pixels);
 
@@ -131,7 +138,7 @@ static void button_event_cb(lv_event_t *event)
 		snprintk(buf, sizeof(buf), "LED_click: %u\n", led_count);
 		log_box_add_text(buf);
 		led_count++;
-	} else if (user_id == BUTTON_ID_MSGBOX) {
+	} else if (user_data->button_id == BUTTON_ID_MSGBOX) {
 		lv_obj_t *mbox = lv_msgbox_create(NULL);
 		lv_msgbox_add_title(mbox, "Title");
 		lv_msgbox_add_text(mbox, "Hello from LVGL EJ");
@@ -153,7 +160,6 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p3);
 
 	int ret;
-
 	if (!device_is_ready(DISPLAY_DEV)) {
 		printk("Display device is not ready\n");
 		return ;
@@ -178,52 +184,64 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 		return ;
 	}
 
-	lv_obj_t *screen = lv_screen_active();
+	lv_obj_t *main_screen = lv_obj_create(NULL);
 
-	lv_obj_set_style_bg_color(screen, lv_color_hex(0x20252b), LV_PART_MAIN);
-	lv_obj_set_style_pad_all(screen, 24, LV_PART_MAIN);
+	lv_obj_set_style_bg_color(main_screen, lv_color_hex(0x20252b), LV_PART_MAIN);
+	lv_obj_set_style_pad_all(main_screen, 24, LV_PART_MAIN);
 
-	lv_obj_t *title = lv_label_create(screen);
+	lv_obj_t *title = lv_label_create(main_screen);
 
 	lv_label_set_text(title, "LVGL Practice 01");
 	lv_obj_set_style_text_color(title, lv_color_hex(0x00ffff), LV_PART_MAIN);
 	lv_obj_set_style_text_font(title, &lv_font_montserrat_24, LV_PART_MAIN);
 	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
-	counter_label = lv_label_create(screen);
+	counter_label = lv_label_create(main_screen);
 	lv_label_set_text(counter_label, "Clicked: 0");
 	lv_obj_set_style_text_color(counter_label, lv_color_hex(0xd9e2ec), LV_PART_MAIN);
 	lv_obj_align(counter_label, LV_ALIGN_TOP_MID, 0, 30);
 
-	lv_obj_t *button = lv_button_create(screen);
+	lv_obj_t *button = lv_button_create(main_screen);
+	static struct user_data_ej button_data = {
+		.button_id = BUTTON_ID_MAIN,
+	};
 
+	button_data.screen = main_screen;
 	lv_obj_set_size(button, 90, 44);
 	lv_obj_align(button, LV_ALIGN_BOTTOM_MID, 0, -4);
-	lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, (void *)(uintptr_t)BUTTON_ID_MAIN);
+	lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, &button_data);
 
 	lv_obj_t *button_label = lv_label_create(button);
 
 	lv_label_set_text(button_label, "Tap");
 	lv_obj_center(button_label);
 
-	lv_obj_t *button1 = lv_button_create(screen);
+	lv_obj_t *button1 = lv_button_create(main_screen);
+	static struct user_data_ej button1_data = {
+		.button_id = BUTTON_ID_SUB,
+	};
 
 	lv_obj_set_size(button1, 90, 44);
 	lv_obj_align(button1, LV_ALIGN_BOTTOM_LEFT, 0, -4);
+	button1_data.screen = main_screen;
 	lv_obj_add_event_cb(button1, button_event_cb, LV_EVENT_CLICKED,
-			    (void *)(uintptr_t)BUTTON_ID_SUB);
+			    &button1_data);
 
 	lv_obj_t *button1_label = lv_label_create(button1);
 	lv_label_set_text(button1_label, "LED");
 	lv_obj_center(button1_label);
 
 	
-	lv_obj_t *button2 = lv_button_create(screen);
+	lv_obj_t *button2 = lv_button_create(main_screen);
+	static struct user_data_ej button2_data = {
+		.button_id = BUTTON_ID_MSGBOX,
+	};
 
 	lv_obj_set_size(button2, 90, 44);
 	lv_obj_align(button2, LV_ALIGN_BOTTOM_RIGHT, 0, -4);
+	button2_data.screen = main_screen;
 	lv_obj_add_event_cb(button2, button_event_cb, LV_EVENT_CLICKED,
-			    (void *)(uintptr_t)BUTTON_ID_MSGBOX);
+			    &button2_data);
 
 	lv_obj_t *button2_label = lv_label_create(button2);
 	lv_label_set_text(button2_label, "MsgBox");
@@ -236,7 +254,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_obj_set_size(ok_btn, 80, 40);
 	lv_obj_add_event_cb(ok_btn, box_button_event_cb, LV_EVENT_CLICKED, mbox);
 
-	text_box = lv_obj_create(screen);
+	text_box = lv_obj_create(main_screen);
 	lv_obj_set_size(text_box, 260, 120);
 	lv_obj_align(text_box, LV_ALIGN_TOP_MID, 0, 60);
 	lv_obj_add_flag(text_box, LV_OBJ_FLAG_SCROLLABLE);
