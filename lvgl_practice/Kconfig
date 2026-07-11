@@ -16,4 +16,13 @@ config LVGL_EJ_STACK_LOG_INTERVAL_MS
 	help
 	  Interval used for periodic LVGL EJ thread stack usage output.
 
+config APP_STACK_USAGE_LOG
+	bool "Print app controller stack usage"
+	select INIT_STACKS
+	select THREAD_STACK_INFO
+	select THREAD_NAME
+	help
+	  Print the app controller thread stack high-water usage.
+	  This option is intended for stack size debugging.
+
 source "Kconfig.zephyr"
