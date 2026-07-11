@@ -12,4 +12,7 @@ project(lvgl_practice)
 target_sources(app PRIVATE
     src/main.c
     src/lvgl_ej.c
+    src/led_service.c
+    src/app_controller.c
+    src/app_state.c
 )

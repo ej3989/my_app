@@ -1,4 +1,6 @@
 #include "lvgl_ej.h"
+#include "app_controller.h"
+#include "app_state.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -7,36 +9,19 @@
 #include <lvgl_zephyr.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/display.h>
-#include <zephyr/drivers/led_strip.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 
 #define DISPLAY_NODE DT_CHOSEN(zephyr_display)
 #define DISPLAY_DEV DEVICE_DT_GET(DISPLAY_NODE)
-#define LED_STRIP_NODE DT_ALIAS(led_strip)
-#define LED_STRIP_DEV DEVICE_DT_GET(LED_STRIP_NODE)
 #define LVGL_EJ_THREAD_STACK_SIZE 8192
 #define LVGL_EJ_THREAD_PRIORITY K_PRIO_PREEMPT(5)
 
 static lv_obj_t *counter_label;
 static lv_obj_t *text_box;
 static lv_obj_t *log_label;
-static uint32_t click_count;
 static struct k_thread lvgl_ej_thread;
 K_THREAD_STACK_DEFINE(lvgl_ej_thread_stack, LVGL_EJ_THREAD_STACK_SIZE);
-
-static struct led_rgb led_strip_pixels[] = {
-	{ .r = 10, .g = 0, .b = 0 },   /* Red */
-	{ .r = 0, .g = 10, .b = 0 },   /* Green */
-	{ .r = 0, .g = 0, .b = 10 },   /* Blue */
-	{ .r = 10, .g = 10, .b = 0 },  /* Yellow */
-	{ .r = 0, .g = 10, .b = 10 },  /* Cyan */
-	{ .r = 10, .g = 0, .b = 10 },  /* Magenta */
-	{ .r = 10, .g = 10, .b = 10 }, /* White */
-	{ .r = 10, .g = 5, .b = 0 },   /* Orange */
-	{ .r = 5, .g = 0, .b = 10 },   /* Purple */
-	{ .r = 2, .g = 2, .b = 2 },    /* Dim white */
-};
 
 enum button_id_ej {
 	BUTTON_ID_MAIN,
@@ -50,11 +35,6 @@ struct user_data_ej {
 	enum button_id_ej button_id;
 };
 
-static struct led_rgb pending_led_pixel;
-K_MUTEX_DEFINE(pending_led_lock);
-static struct k_work led_strip_work;
-
-static void led_strip_work_handler(struct k_work *work);
 static void log_box_add_text(const char *text);
 static void button_event_cb(lv_event_t *event);
 static void box_button_event_cb(lv_event_t *event);
@@ -82,19 +62,6 @@ static void lvgl_ej_print_stack_usage(void)
 }
 #endif /* CONFIG_LVGL_EJ_STACK_USAGE_LOG */
 
-static void led_strip_work_handler(struct k_work *work)
-{
-	struct led_rgb pixel;
-
-	ARG_UNUSED(work);
-
-	k_mutex_lock(&pending_led_lock, K_FOREVER);
-	pixel = pending_led_pixel;
-	k_mutex_unlock(&pending_led_lock);
-
-	led_strip_update_rgb(LED_STRIP_DEV, &pixel, 1);
-}
-
 static void log_box_add_text(const char *text)
 {
 	lv_label_ins_text(log_label, LV_LABEL_POS_LAST, text);
@@ -120,6 +87,8 @@ static void screen_back_event_cb(lv_event_t *event)
 
 	lv_obj_t *screen = lv_event_get_user_data(event);
 
+	app_state_set_screen(APP_SCREEN_MAIN);
+
 	lv_screen_load_anim(screen, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 300, 0, false);
 }
 
@@ -132,26 +101,25 @@ static void button_event_cb(lv_event_t *event)
 	struct user_data_ej *user_data = (struct user_data_ej *)lv_event_get_user_data(event);
 
 	if (user_data->button_id == BUTTON_ID_MAIN) {
-		click_count++;
-		lv_label_set_text_fmt(counter_label, "Clicked: %u", click_count);
+		uint32_t count = app_state_increment_click_count();
+		lv_label_set_text_fmt(counter_label, "Clicked: %u", count);
 		char buf[64];
 
-		snprintk(buf, sizeof(buf), "Clicked: %u\n", click_count);
+		snprintk(buf, sizeof(buf), "Clicked: %u\n", count);
 		log_box_add_text(buf);
 	} else if (user_data->button_id == BUTTON_ID_SUB) {
-		static uint32_t led_count = 0;
-		uint8_t color_index = led_count % ARRAY_SIZE(led_strip_pixels);
-
-		k_mutex_lock(&pending_led_lock, K_FOREVER);
-		pending_led_pixel = led_strip_pixels[color_index];
-		k_mutex_unlock(&pending_led_lock);
-
-		k_work_submit(&led_strip_work);
 		char buf[64];
+		int ret;
 
-		snprintk(buf, sizeof(buf), "LED_click: %u\n", led_count);
-		log_box_add_text(buf);
-		led_count++;
+		ret = app_controller_send(APP_EVENT_LED_NEXT, 0);
+		if (ret < 0) {
+			snprintk(buf, sizeof(buf), "Event Queue full: %d\n", ret);
+			log_box_add_text(buf);
+			return;
+		}
+
+		log_box_add_text("LED event sent\n");
+
 	} else if (user_data->button_id == BUTTON_ID_MSGBOX) {
 		lv_obj_t *mbox = lv_msgbox_create(NULL);
 		lv_msgbox_add_title(mbox, "Title");
@@ -159,8 +127,11 @@ static void button_event_cb(lv_event_t *event)
 		lv_obj_t *ok_btn = lv_msgbox_add_footer_button(mbox, "OK");
 		lv_obj_set_size(ok_btn, 80, 40);
 		lv_obj_add_event_cb(ok_btn, box_button_event_cb, LV_EVENT_CLICKED, mbox);
-	}else if (user_data->button_id == BUTTON_ID_SETUP) {
-		lv_screen_load_anim(user_data->screen, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
+	} else if (user_data->button_id == BUTTON_ID_SETUP) {
+		app_state_set_screen(APP_SCREEN_SETUP);
+		lv_screen_load_anim(user_data->screen,
+				    LV_SCR_LOAD_ANIM_MOVE_LEFT,
+				    300, 0, false);
 	}
 }
 
@@ -181,18 +152,11 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 		return ;
 	}
 
-	if (!device_is_ready(LED_STRIP_DEV)) {
-		printk("LED strip device is not ready\n");
-		return ;
-	}
-
 	ret = display_blanking_off(DISPLAY_DEV);
 	if (ret < 0 && ret != -ENOSYS) {
 		printk("Display blanking off failed: %d\n", ret);
 		return ;
 	}
-
-	k_work_init(&led_strip_work, led_strip_work_handler);
 
 	ret = lvgl_init();
 	if (ret < 0) {
@@ -311,7 +275,6 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_screen_load(main_screen);
 	lv_refr_now(NULL);
 
-	led_strip_update_rgb(LED_STRIP_DEV, &led_strip_pixels[0], 1);
 #if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
 	lvgl_ej_print_stack_usage();
 #endif
