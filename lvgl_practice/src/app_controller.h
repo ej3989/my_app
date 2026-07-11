@@ -6,6 +6,7 @@
 
 enum app_event_type {
     APP_EVENT_LED_NEXT,
+    APP_EVENT_STATUS_TICK,
 };
 
 struct app_event {

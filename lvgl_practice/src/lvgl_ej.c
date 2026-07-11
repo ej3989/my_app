@@ -20,6 +20,7 @@
 static lv_obj_t *counter_label;
 static lv_obj_t *text_box;
 static lv_obj_t *log_label;
+static lv_obj_t *state_label;
 static struct k_thread lvgl_ej_thread;
 K_THREAD_STACK_DEFINE(lvgl_ej_thread_stack, LVGL_EJ_THREAD_STACK_SIZE);
 
@@ -40,6 +41,7 @@ static void button_event_cb(lv_event_t *event);
 static void box_button_event_cb(lv_event_t *event);
 static void screen_back_event_cb(lv_event_t *event);
 static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3);
+static void ui_state_timer_cb(lv_timer_t *timer);
 
 #if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
 static void lvgl_ej_print_stack_usage(void);
@@ -178,6 +180,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
 
 	lv_obj_t *setup_title = lv_label_create(setup_screen);
+
 	lv_label_set_text(setup_title, "Setup Screen");
 	lv_obj_set_style_text_color(setup_title, lv_color_hex(0x00ffff), LV_PART_MAIN);
 	lv_obj_set_style_text_font(setup_title, &lv_font_montserrat_24, LV_PART_MAIN);
@@ -186,6 +189,16 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_obj_set_style_pad_all(setup_screen, 24, LV_PART_MAIN);
 	lv_obj_add_flag(setup_screen, LV_OBJ_FLAG_CLICKABLE);
 	lv_obj_add_event_cb(setup_screen, screen_back_event_cb, LV_EVENT_CLICKED, main_screen);
+
+
+	state_label = lv_label_create(setup_screen);
+
+	lv_label_set_text(state_label,
+			"Tap: 0\nLED: 0\nColor: 0\n");
+	lv_obj_set_style_text_color(state_label,
+			lv_color_hex(0xd9e2ec),
+			LV_PART_MAIN);
+	lv_obj_align(state_label, LV_ALIGN_TOP_MID, 0, 100);
 
 	counter_label = lv_label_create(main_screen);
 	lv_label_set_text(counter_label, "Clicked: 0");
@@ -275,6 +288,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_screen_load(main_screen);
 	lv_refr_now(NULL);
 
+	lv_timer_create(ui_state_timer_cb, 1000, NULL);
 #if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
 	lvgl_ej_print_stack_usage();
 #endif
@@ -308,4 +322,19 @@ int lvgl_ej_start(void)
 
 	k_thread_name_set(&lvgl_ej_thread, "lvgl_ej");
 	return 0;
+}
+
+static void ui_state_timer_cb(lv_timer_t *timer)
+{
+	struct app_state_snapshot snapshot;
+
+	ARG_UNUSED(timer);
+
+	app_state_get_snapshot(&snapshot);
+
+	lv_label_set_text_fmt(state_label,
+			    "Tap: %u\nLED: %u\nColor: %u",
+			    snapshot.click_count,
+			    snapshot.led_click_count,
+			    snapshot.led_color_index);
 }
