@@ -103,12 +103,21 @@ static void button_event_cb(lv_event_t *event)
 	struct user_data_ej *user_data = (struct user_data_ej *)lv_event_get_user_data(event);
 
 	if (user_data->button_id == BUTTON_ID_MAIN) {
-		uint32_t count = app_state_increment_click_count();
-		lv_label_set_text_fmt(counter_label, "Clicked: %u", count);
 		char buf[64];
+		int ret;
+		uint32_t count;
+
+		count = app_state_increment_click_count();
+		lv_label_set_text_fmt(counter_label, "Clicked: %u", count);
 
 		snprintk(buf, sizeof(buf), "Clicked: %u\n", count);
 		log_box_add_text(buf);
+
+		ret = app_controller_send_log("Tap Button clicked");
+		if (ret < 0) {
+			snprintk(buf, sizeof(buf), "Log send failed: %d\n", ret);
+			log_box_add_text(buf);
+		}
 	} else if (user_data->button_id == BUTTON_ID_SUB) {
 		char buf[64];
 		int ret;

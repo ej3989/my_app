@@ -2,16 +2,33 @@
 #include "app_state.h"
 #include "led_service.h"
 
+#include <errno.h>
+
 #include <zephyr/kernel.h>
+#include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
+
+LOG_MODULE_REGISTER(app_controller, LOG_LEVEL_INF);
 
 #define APP_THREAD_STACK_SIZE    2048
 #define APP_THREAD_PRIORITY      K_PRIO_PREEMPT(6)
 #define APP_EVENT_QUEUE_LENGTH  8
 #define STATUS_TIMER_PERIOD     K_SECONDS(5)
+#define APP_LOG_TEXT_SIZE       64
+#define APP_LOG_BLOCK_COUNT     4
+
+BUILD_ASSERT(APP_LOG_BLOCK_COUNT <= APP_EVENT_QUEUE_LENGTH,
+	     "Log slab blocks must fit in event queue");
+BUILD_ASSERT(APP_LOG_TEXT_SIZE > 1,
+	     "Log message buffer is too small");
+
+struct app_log_message {
+	char text[APP_LOG_TEXT_SIZE];
+};
 
 static void status_timer_expiry(struct k_timer *timer);
 static void state_log_work_handler(struct k_work *work);
+static int app_controller_put_event(const struct app_event *event);
 #if defined(CONFIG_APP_STACK_USAGE_LOG)
 static void app_print_stack_usage(void);
 #endif
@@ -21,6 +38,11 @@ K_WORK_DELAYABLE_DEFINE(state_log_work, state_log_work_handler);
 K_MSGQ_DEFINE(app_event_queue, sizeof(struct app_event), APP_EVENT_QUEUE_LENGTH, 4);
 K_THREAD_STACK_DEFINE(app_thread_stack, APP_THREAD_STACK_SIZE);
 K_SEM_DEFINE(app_ready_sem, 0, 1);
+
+K_MEM_SLAB_DEFINE_STATIC_TYPE(log_message_slab,
+			      struct app_log_message,
+			      APP_LOG_BLOCK_COUNT);
+
 static struct k_thread app_thread;
 static atomic_t dropped_event_count;
 static int app_init_result;
@@ -34,13 +56,13 @@ static void app_print_stack_usage(void)
 
 	ret = k_thread_stack_space_get(&app_thread, &unused);
 	if (ret < 0) {
-		printk("APP stack check failed: %d\n", ret);
+		LOG_ERR("APP stack check failed: %d", ret);
 		return;
 	}
 
 	total = K_THREAD_STACK_SIZEOF(app_thread_stack);
-	printk("APP stack: used=%zu unused=%zu total=%zu\n",
-	       total - unused, unused, total);
+	LOG_INF("APP stack: used=%zu unused=%zu total=%zu",
+		total - unused, unused, total);
 }
 #endif /* CONFIG_APP_STACK_USAGE_LOG */
 
@@ -58,14 +80,14 @@ static void app_thread_handler(void *p1, void *p2, void *p3)
 	k_sem_give(&app_ready_sem);
 
 	if (ret < 0) {
-		printk("LED service init failed: %d\n", ret);
+		LOG_ERR("LED service init failed: %d", ret);
 		return;
 	}
 
 	while (1) {
 		ret = k_msgq_get(&app_event_queue, &event, K_FOREVER);
 		if (ret < 0) {
-			printk("App event receive failed: %d\n", ret);
+			LOG_ERR("App event receive failed: %d", ret);
 			continue;
 		}
 
@@ -77,12 +99,12 @@ static void app_thread_handler(void *p1, void *p2, void *p3)
 
 			ret = led_service_next();
 			if (ret < 0) {
-				printk("LED update failed: %d\n", ret);
+				LOG_ERR("LED update failed: %d", ret);
 				break;
 			}
 
 			app_state_set_led_color_index((uint8_t)ret);
-			printk("LED event: count=%u, color=%d\n", led_count, ret);
+			LOG_INF("LED event: count=%u color=%d", led_count, ret);
 			(void)k_work_reschedule(&state_log_work, K_SECONDS(2));
 			break;
 		}
@@ -93,20 +115,30 @@ static void app_thread_handler(void *p1, void *p2, void *p3)
 			app_state_get_snapshot(&snapshot);
 			dropped = atomic_get(&dropped_event_count);
 
-			printk("Status: uptime=%u screen=%d tap=%u led=%u color=%u dropped=%ld\n",
-			       event.value,
-			       snapshot.current_screen,
-			       snapshot.click_count,
-			       snapshot.led_click_count,
-			       snapshot.led_color_index,
-			       (long)dropped);
+			LOG_INF("Status: uptime=%u screen=%d tap=%u led=%u color=%u dropped=%ld",
+				event.value,
+				snapshot.current_screen,
+				snapshot.click_count,
+				snapshot.led_click_count,
+				snapshot.led_color_index,
+				(long)dropped);
 #if defined(CONFIG_APP_STACK_USAGE_LOG)
 			app_print_stack_usage();
 #endif
 			break;
 		}
+		case APP_EVENT_LOG_MESSAGE:
+			if (event.log_message == NULL) {
+				LOG_WRN("Log event has no message");
+				break;
+			}
+			LOG_INF("App log: %s", (char *)event.log_message->text);
+
+			k_mem_slab_free(&log_message_slab,
+					event.log_message);
+			break;
 		default:
-			printk("Unhandled event type: %d\n", event.type);
+			LOG_WRN("Unhandled event type: %d", event.type);
 			break;
 		}
 	}
@@ -117,15 +149,10 @@ int app_controller_send(enum app_event_type type, uint32_t value)
 	struct app_event event = {
 		.type = type,
 		.value = value,
+		.log_message = NULL,
 	};
-	int ret;
 
-	ret = k_msgq_put(&app_event_queue, &event, K_NO_WAIT);
-	if (ret < 0) {
-		atomic_inc(&dropped_event_count);
-	}
-
-	return ret;
+	return app_controller_put_event(&event);
 }
 
 int app_controller_start(void)
@@ -144,7 +171,7 @@ int app_controller_start(void)
 
 	ret = k_sem_take(&app_ready_sem, K_SECONDS(3));
 	if (ret < 0) {
-		printk("App initialization timeout: %d\n", ret);
+		LOG_ERR("App initialization timeout: %d", ret);
 		return ret;
 	}
 
@@ -175,8 +202,63 @@ static void state_log_work_handler(struct k_work *work)
 
 	app_state_get_snapshot(&snapshot);
 
-	printk("Delayed state: tap=%u led=%u color=%u\n",
-	       snapshot.click_count,
-	       snapshot.led_click_count,
-	       snapshot.led_color_index);
+	LOG_INF("Delayed state: tap=%u led=%u color=%u",
+		snapshot.click_count,
+		snapshot.led_click_count,
+		snapshot.led_color_index);
+}
+
+static int app_controller_put_event(const struct app_event *event)
+{
+	int ret;
+
+	__ASSERT(event != NULL, "event must not be NULL");
+	if (event == NULL) {
+		return -EINVAL;
+	}
+
+	ret = k_msgq_put(&app_event_queue, event, K_NO_WAIT);
+	if (ret < 0) {
+		atomic_inc(&dropped_event_count);
+	}
+
+	return ret;
+}
+
+int app_controller_send_log(const char *text)
+{
+	struct app_log_message *message;
+	struct app_event event;
+	int ret;
+
+	if (text == NULL) {
+		LOG_WRN("Cannot send a NULL log message");
+		return -EINVAL;
+	}
+
+	ret = k_mem_slab_alloc(&log_message_slab,
+			       (void **)&message,
+			       K_NO_WAIT);
+
+	if (ret < 0) {
+		atomic_inc(&dropped_event_count);
+		LOG_WRN("Log slab allocation failed: %d", ret);
+		return ret;
+	}
+
+	snprintk(message->text, sizeof(message->text), "%s", text);
+
+	event = (struct app_event) {
+		.type = APP_EVENT_LOG_MESSAGE,
+		.value = 0,
+		.log_message = message,
+	};
+
+	ret = app_controller_put_event(&event);
+	if (ret < 0) {
+		k_mem_slab_free(&log_message_slab, message);
+		return ret;
+	}
+
+	return 0;
 }
