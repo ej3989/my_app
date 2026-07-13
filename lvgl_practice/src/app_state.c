@@ -49,9 +49,16 @@ void app_state_set_screen(enum app_screen_id screen)
 
 void app_state_set_led_color_index(uint8_t color_index)
 {
-    k_mutex_lock(&state_lock, K_FOREVER);
-    state.led_color_index = color_index;
-    k_mutex_unlock(&state_lock);
+	k_mutex_lock(&state_lock, K_FOREVER);
+	state.led_color_index = color_index;
+	k_mutex_unlock(&state_lock);
+}
+
+void app_state_set_led_enabled(bool enabled)
+{
+	k_mutex_lock(&state_lock, K_FOREVER);
+	state.led_enabled = enabled;
+	k_mutex_unlock(&state_lock);
 }
 
 void app_state_get_snapshot(struct app_state_snapshot *snapshot)

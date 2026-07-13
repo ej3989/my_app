@@ -51,8 +51,30 @@ int led_service_init(void)
 	k_work_init(&update_work, led_service_work_handler);
 	next_color_index = 0;
 
-	struct led_rgb pixel_init = led_strip_pixels[0];
-	return led_strip_update_rgb(LED_STRIP_DEV, &pixel_init, 1);
+	return 0;
+}
+
+int led_service_restore(uint8_t color_index, bool enabled)
+{
+	struct led_rgb pixel = { 0 };
+	int ret;
+
+	if (color_index >= ARRAY_SIZE(led_strip_pixels)) {
+		return -EINVAL;
+	}
+
+	if (enabled) {
+		pixel = led_strip_pixels[color_index];
+	}
+
+	ret = led_strip_update_rgb(LED_STRIP_DEV, &pixel, 1);
+	if (ret < 0) {
+		return ret;
+	}
+
+	next_color_index = (color_index + 1U) % ARRAY_SIZE(led_strip_pixels);
+
+	return 0;
 }
 
 int led_service_next(void)

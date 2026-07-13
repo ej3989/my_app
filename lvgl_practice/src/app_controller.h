@@ -10,6 +10,7 @@ enum app_event_type {
 	APP_EVENT_LED_NEXT,
 	APP_EVENT_STATUS_TICK,
 	APP_EVENT_LOG_MESSAGE,
+	APP_EVENT_SAVE_SETTINGS,
 };
 
 struct app_event {

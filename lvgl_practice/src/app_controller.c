@@ -1,5 +1,6 @@
 #include "app_controller.h"
 #include "app_state.h"
+#include "app_settings.h"
 #include "led_service.h"
 
 #include <errno.h>
@@ -27,14 +28,14 @@ struct app_log_message {
 };
 
 static void status_timer_expiry(struct k_timer *timer);
-static void state_log_work_handler(struct k_work *work);
+static void settings_save_work_handler(struct k_work *work);
 static int app_controller_put_event(const struct app_event *event);
 #if defined(CONFIG_APP_STACK_USAGE_LOG)
 static void app_print_stack_usage(void);
 #endif
 
 K_TIMER_DEFINE(status_timer, status_timer_expiry, NULL);
-K_WORK_DELAYABLE_DEFINE(state_log_work, state_log_work_handler);
+K_WORK_DELAYABLE_DEFINE(settings_save_work, settings_save_work_handler);
 K_MSGQ_DEFINE(app_event_queue, sizeof(struct app_event), APP_EVENT_QUEUE_LENGTH, 4);
 K_THREAD_STACK_DEFINE(app_thread_stack, APP_THREAD_STACK_SIZE);
 K_SEM_DEFINE(app_ready_sem, 0, 1);
@@ -69,13 +70,48 @@ static void app_print_stack_usage(void)
 static void app_thread_handler(void *p1, void *p2, void *p3)
 {
 	struct app_event event;
+	struct app_persistent_settings settings;
+	struct app_state_snapshot snapshot;
 	int ret;
 
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 
+	ret = app_settings_init();
+	if (ret < 0) {
+		LOG_ERR("Settings init failed: %d", ret);
+		goto init_done;
+	}
+
+	ret = app_settings_load(&settings);
+	if (ret < 0) {
+		LOG_WRN("Settings load failed, using default: %d", ret);
+	} else {
+		app_state_set_led_color_index(settings.led_color_index);
+		app_state_set_led_enabled(settings.led_enabled);
+
+		LOG_INF("Settings Loaded: color=%u enabled=%d",
+			settings.led_color_index,
+			settings.led_enabled);
+	}
+init_done:
 	ret = led_service_init();
+	if (ret < 0) {
+		goto service_init_done;
+	}
+
+	app_state_get_snapshot(&snapshot);
+	ret = led_service_restore(snapshot.led_color_index,
+				  snapshot.led_enabled);
+	if (ret == -EINVAL) {
+		LOG_WRN("Invalid saved LED state, using defaults");
+		app_state_set_led_color_index(0);
+		app_state_set_led_enabled(true);
+		ret = led_service_restore(0, true);
+	}
+
+service_init_done:
 	app_init_result = ret;
 	k_sem_give(&app_ready_sem);
 
@@ -104,8 +140,9 @@ static void app_thread_handler(void *p1, void *p2, void *p3)
 			}
 
 			app_state_set_led_color_index((uint8_t)ret);
+			app_state_set_led_enabled(true);
 			LOG_INF("LED event: count=%u color=%d", led_count, ret);
-			(void)k_work_reschedule(&state_log_work, K_SECONDS(2));
+			(void)k_work_reschedule(&settings_save_work, K_SECONDS(2));
 			break;
 		}
 		case APP_EVENT_STATUS_TICK: {
@@ -137,6 +174,28 @@ static void app_thread_handler(void *p1, void *p2, void *p3)
 			k_mem_slab_free(&log_message_slab,
 					event.log_message);
 			break;
+		case APP_EVENT_SAVE_SETTINGS: {
+			struct app_state_snapshot snapshot;
+			struct app_persistent_settings settings;
+
+			app_state_get_snapshot(&snapshot);
+
+			settings = (struct app_persistent_settings) {
+				.version = APP_SETTINGS_VERSION,
+				.led_color_index = snapshot.led_color_index,
+				.led_enabled = snapshot.led_enabled,
+				.reserved = 0,
+			};
+			ret = app_settings_save(&settings);
+			if (ret < 0) {
+				LOG_ERR("Settings save failed: %d", ret);
+			} else {
+				LOG_INF("Settings save: color=%u enabled=%d",
+					settings.led_color_index,
+					settings.led_enabled);
+			}
+			break;
+		}
 		default:
 			LOG_WRN("Unhandled event type: %d", event.type);
 			break;
@@ -194,18 +253,16 @@ static void status_timer_expiry(struct k_timer *timer)
 				  k_uptime_get_32());
 }
 
-static void state_log_work_handler(struct k_work *work)
+static void settings_save_work_handler(struct k_work *work)
 {
-	struct app_state_snapshot snapshot;
+	int ret;
 
 	ARG_UNUSED(work);
 
-	app_state_get_snapshot(&snapshot);
-
-	LOG_INF("Delayed state: tap=%u led=%u color=%u",
-		snapshot.click_count,
-		snapshot.led_click_count,
-		snapshot.led_color_index);
+	ret = app_controller_send(APP_EVENT_SAVE_SETTINGS, 0);
+	if (ret < 0) {
+		LOG_WRN("Settings save event send failed: %d", ret);
+	}
 }
 
 static int app_controller_put_event(const struct app_event *event)

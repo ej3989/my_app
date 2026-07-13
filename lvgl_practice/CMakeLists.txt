@@ -15,4 +15,5 @@ target_sources(app PRIVATE
     src/led_service.c
     src/app_controller.c
     src/app_state.c
+    src/app_settings.c
 )

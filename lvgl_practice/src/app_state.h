@@ -24,6 +24,7 @@ uint32_t app_state_increment_led_click_count(void);
 
 void app_state_set_screen(enum app_screen_id screen);
 void app_state_set_led_color_index(uint8_t color_index);
+void app_state_set_led_enabled(bool enabled);
 
 void app_state_get_snapshot(struct app_state_snapshot *snapshot);
 
