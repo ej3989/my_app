@@ -16,4 +16,5 @@ target_sources(app PRIVATE
     src/app_controller.c
     src/app_state.c
     src/app_settings.c
+    src/aht10_service.c
 )

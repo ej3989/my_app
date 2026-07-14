@@ -733,3 +733,173 @@ subsystem report 함수까지 도달하는가?
 - [ ] Step 8: 모듈 문서화 및 재사용 정리
 
 다음 실습은 **Step 1: 현재 Touch 드라이버 선택 경로 추적**부터 시작한다.
+
+## 11. 추가 하드웨어 연결 계획
+
+현재 보드에 다음 장치를 추가할 예정이다.
+
+```text
+I2S amplifier : MAX98357A
+I2C sensor    : TS1012L-AHT10 온습도 모듈
+```
+
+### 11.1 현재 핀 점유 상태
+
+```text
+GPIO4, 5, 6, 15 : 버튼
+GPIO8, 9         : LCD reset, D/C
+GPIO10~13        : LCD/Touch SPI2
+GPIO16, 17       : Touch CS, IRQ
+GPIO38           : I2S0 기반 WS2812
+GPIO43, 44       : UART0 console
+GPIO19, 20       : USB Serial/JTAG
+GPIO33~37        : N16R8 Octal PSRAM 관련 핀이므로 사용하지 않음
+```
+
+I2S0은 WS2812 드라이버가 LED waveform 생성용으로 사용한다. MAX98357A 오디오와
+같은 I2S controller를 공유하면 두 드라이버가 서로 다른 sample format과 clock을
+설정하게 되므로 I2S1을 오디오 전용으로 사용한다.
+
+보드 기본 I2S1 pinctrl은 GPIO4, 5, 6을 사용하지만 이 프로젝트에서는 버튼과
+충돌한다. 따라서 I2S1 pinctrl을 새로 정의한다.
+
+### 11.2 권장 핀 배치
+
+```text
+ESP32-S3                 MAX98357A
+-----------------------------------------
+GPIO39  I2S1 BCLK   ->   BCLK
+GPIO40  I2S1 WS     ->   LRC / LRCLK / WS
+GPIO41  I2S1 DOUT   ->   DIN
+GPIO42  GPIO output ->   SD / EN (선택 사항)
+GND                  ->   GND
+5V                   ->   VIN (전원 조건 확인)
+
+ESP32-S3                 AHT10 module
+-----------------------------------------
+GPIO1   I2C0 SDA    <->  SDA
+GPIO2   I2C0 SCL    ->   SCL
+3V3                  ->  VCC
+GND                  ->  GND
+```
+
+GPIO39~42는 ESP32-S3의 외부 JTAG signal 이름도 가진다. 이 배치는 GPIO39~42를
+사용하는 외부 4-wire JTAG probe와 동시에 사용할 수 없다. 현재 내장 USB
+Serial/JTAG를 GPIO19/20으로 사용하는 구성에서는 GPIO39~42를 I2S/GPIO로 사용할
+수 있다.
+
+### 11.3 MAX98357A 전원 주의점
+
+MAX98357A는 MCLK가 필요하지 않고 BCLK, LRCLK, DIN 세 신호만으로 오디오를
+수신한다. 그러나 speaker 출력 전력은 ESP32 GPIO 전원이 아니라 amplifier VIN
+전원에서 공급된다.
+
+- 작은 음량 시험은 보드 5V pin으로 시작할 수 있다.
+- 큰 음량 또는 4 ohm speaker는 별도 5V 전원을 고려한다.
+- 별도 전원을 쓰면 ESP32와 amplifier의 GND를 반드시 공통으로 연결한다.
+- Class-D speaker 출력의 `SPK+`, `SPK-` 중 하나를 GND에 연결하지 않는다.
+- breakout의 SD/MODE, GAIN pin 기본 회로를 확인한 뒤 GPIO42 사용 여부를 정한다.
+
+### 11.4 I2S1 overlay 예정 구조
+
+```dts
+&pinctrl {
+    i2s1_max98357: i2s1_max98357 {
+        group1 {
+            pinmux = <I2S1_O_BCK_GPIO39>,
+                     <I2S1_O_WS_GPIO40>,
+                     <I2S1_O_SD_GPIO41>;
+        };
+    };
+};
+
+&i2s1 {
+    status = "okay";
+    pinctrl-0 = <&i2s1_max98357>;
+    pinctrl-names = "default";
+};
+```
+
+ESP32-S3 SoC DTS에서 I2S1 DMA는 기본적으로 RX channel 4, TX channel 5에 연결된다.
+I2S0 WS2812는 현재 TX channel 3을 사용하므로 TX DMA channel이 겹치지 않는다.
+
+MAX98357A는 별도의 I2C 설정이 없는 단순 I2S sink다. 현재 Zephyr tree에는 이
+부품 전용 codec binding/driver가 없으므로 애플리케이션의 audio service가
+`i2s1` controller API를 직접 사용한다.
+
+초기 오디오 설정 예정값:
+
+```text
+Format      : standard I2S
+Sample rate : 16 kHz 또는 48 kHz
+Word size   : 16 bit
+Channels    : 2
+Clock role  : ESP32-S3가 BCLK/WS controller
+Direction   : TX
+```
+
+MAX98357A는 mono amplifier지만 I2S frame은 stereo 형태로 보내고, breakout의
+SD/MODE 설정으로 left, right 또는 mono mix channel을 선택한다.
+
+### 11.5 AHT10 overlay 예정 구조
+
+보드 DTS가 이미 I2C0 pinctrl을 GPIO1(SDA), GPIO2(SCL)로 정의한다. overlay에서는
+controller를 활성화하고 sensor child node를 추가한다.
+
+```dts
+&i2c0 {
+    status = "okay";
+    clock-frequency = <I2C_BITRATE_STANDARD>;
+
+    aht10: aht10@38 {
+        compatible = "aosong,aht10";
+        reg = <0x38>;
+        status = "okay";
+    };
+};
+```
+
+현재 Zephyr checkout에는 `aosong,aht20` driver는 있지만 `aosong,aht10` binding과
+driver는 없다. AHT20 compatible을 임의로 사용하지 않고 다음 파일을 외부 모듈에
+추가하는 실습으로 진행한다.
+
+```text
+EJ_APP/modules/waveshare_35c_drivers/
+├── drivers/sensor/CMakeLists.txt
+├── drivers/sensor/Kconfig
+├── drivers/sensor/aht10.c
+└── dts/bindings/sensor/aosong,aht10.yaml
+```
+
+예정 driver API:
+
+```text
+sensor_sample_fetch()
+sensor_channel_get(SENSOR_CHAN_AMBIENT_TEMP)
+sensor_channel_get(SENSOR_CHAN_HUMIDITY)
+```
+
+AHT10의 I2C address는 고정 `0x38`을 사용한다. 처음에는 100 kHz standard mode와
+3.3V 전원을 사용한다. TS1012L breakout에 regulator와 I2C pull-up이 포함됐는지는
+실물 회로 또는 판매 문서를 확인해야 한다. 확인 전에는 5V logic pull-up을
+가정하지 않는다.
+
+### 11.6 추가 장치 실습 순서
+
+```text
+1. 기존 GPIO 점유표와 실제 보드 header 대조
+2. I2C0만 활성화하고 bus/device address 확인
+3. AHT10 binding 작성
+4. AHT10 Kconfig/CMake 연결
+5. AHT10 sensor driver 작성 및 LVGL 표시
+6. I2S1 pinctrl과 controller 활성화
+7. 정현파 PCM block을 만들어 MAX98357A 출력 확인
+8. audio_service.c로 I2S buffer/work 구조 분리
+9. AHT10 경고 조건과 audio 알림 통합
+
+AHT10 구현의 파일별 코드와 실습 순서는
+[`AHT10_DRIVER_TUTORIAL.md`](AHT10_DRIVER_TUTORIAL.md)를 참고한다.
+```
+
+I2C sensor driver가 Devicetree, binding, Kconfig, CMake, `struct device`, subsystem
+API를 모두 포함하므로 가상 Counter 다음의 첫 실제 하드웨어 드라이버로 사용한다.

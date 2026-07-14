@@ -21,6 +21,7 @@ static lv_obj_t *counter_label;
 static lv_obj_t *text_box;
 static lv_obj_t *log_label;
 static lv_obj_t *state_label;
+static lv_obj_t *aht10_label;
 static struct k_thread lvgl_ej_thread;
 K_THREAD_STACK_DEFINE(lvgl_ej_thread_stack, LVGL_EJ_THREAD_STACK_SIZE);
 
@@ -42,6 +43,7 @@ static void box_button_event_cb(lv_event_t *event);
 static void screen_back_event_cb(lv_event_t *event);
 static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3);
 static void ui_state_timer_cb(lv_timer_t *timer);
+static void format_milli_value(char *buf, size_t buf_size, int64_t value);
 
 #if defined(CONFIG_LVGL_EJ_STACK_USAGE_LOG)
 static void lvgl_ej_print_stack_usage(void);
@@ -209,6 +211,13 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 			LV_PART_MAIN);
 	lv_obj_align(state_label, LV_ALIGN_TOP_MID, 0, 100);
 
+	aht10_label = lv_label_create(setup_screen);
+	lv_label_set_text(aht10_label, "--.---\xC2\xB0" "C / --.---%RH");
+	lv_obj_set_style_text_color(aht10_label,
+				    lv_color_hex(0x00ffff),
+				    LV_PART_MAIN);
+	lv_obj_align(aht10_label, LV_ALIGN_TOP_MID, 0, 190);
+
 	counter_label = lv_label_create(main_screen);
 	lv_label_set_text(counter_label, "Clicked: 0");
 	lv_obj_set_style_text_color(counter_label, lv_color_hex(0xd9e2ec), LV_PART_MAIN);
@@ -336,6 +345,8 @@ int lvgl_ej_start(void)
 static void ui_state_timer_cb(lv_timer_t *timer)
 {
 	struct app_state_snapshot snapshot;
+	char temperature[24];
+	char humidity[24];
 
 	ARG_UNUSED(timer);
 
@@ -346,4 +357,34 @@ static void ui_state_timer_cb(lv_timer_t *timer)
 			    snapshot.click_count,
 			    snapshot.led_click_count,
 			    snapshot.led_color_index);
+
+	if (!snapshot.aht10_valid) {
+		lv_label_set_text(aht10_label, "AHT10: unavailable");
+		return;
+	}
+
+	format_milli_value(temperature, sizeof(temperature),
+			   snapshot.temperature_milli_c);
+	format_milli_value(humidity, sizeof(humidity),
+			   snapshot.humidity_milli_percent);
+	lv_label_set_text_fmt(aht10_label, "%s\xC2\xB0" "C / %s%%RH",
+			      temperature, humidity);
+}
+
+static void format_milli_value(char *buf, size_t buf_size, int64_t value)
+{
+	uint64_t magnitude;
+
+	if (value < 0) {
+		magnitude = (uint64_t)(-(value + 1)) + 1U;
+		snprintk(buf, buf_size, "-%llu.%03llu",
+			 (unsigned long long)(magnitude / 1000U),
+			 (unsigned long long)(magnitude % 1000U));
+		return;
+	}
+
+	magnitude = (uint64_t)value;
+	snprintk(buf, buf_size, "%llu.%03llu",
+		 (unsigned long long)(magnitude / 1000U),
+		 (unsigned long long)(magnitude % 1000U));
 }

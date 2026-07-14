@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config WAVESHARE_35C_SENSOR_AHT10
+	bool "Aosong AHT10 temperature and humidity sensor"
+	default y
+	depends on SENSOR
+	depends on DT_HAS_AOSONG_AHT10_ENABLED
+	select I2C
+	help
+	  Enable the out-of-tree driver for the Aosong AHT10 I2C temperature
+	  and humidity sensor.

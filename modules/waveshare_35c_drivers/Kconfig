@@ -4,5 +4,6 @@ menu "Waveshare 3.5C out-of-tree drivers"
 
 rsource "drivers/display/Kconfig"
 rsource "drivers/input/Kconfig"
+rsource "drivers/sensor/Kconfig"
 
 endmenu

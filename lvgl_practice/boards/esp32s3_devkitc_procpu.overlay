@@ -183,3 +183,29 @@
 &dma {
     status = "okay";
 };
+
+&pinctrl {
+    i2s1_max98357: i2s1_max98357 {
+        group1 {
+            pinmux = <I2S1_O_BCK_GPIO39>,
+                     <I2S1_O_WS_GPIO40>,
+                     <I2S1_O_SD_GPIO41>;
+        };
+    };
+};
+
+&i2s1 {
+    status = "okay";
+    pinctrl-0 = <&i2s1_max98357>;
+    pinctrl-names = "default";
+};
+
+&i2c0 {
+    status = "okay";
+
+    aht10: aht10@38 {
+        compatible = "aosong,aht10";
+        reg =<0x38>;
+        status = "okay";
+    };
+};

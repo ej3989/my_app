@@ -1,4 +1,5 @@
 #include "app_controller.h"
+#include "aht10_service.h"
 #include "app_state.h"
 #include "app_settings.h"
 #include "led_service.h"
@@ -47,6 +48,7 @@ K_MEM_SLAB_DEFINE_STATIC_TYPE(log_message_slab,
 static struct k_thread app_thread;
 static atomic_t dropped_event_count;
 static int app_init_result;
+static bool aht10_available;
 
 #if defined(CONFIG_APP_STACK_USAGE_LOG)
 static void app_print_stack_usage(void)
@@ -112,6 +114,17 @@ init_done:
 	}
 
 service_init_done:
+	if (ret >= 0) {
+		int sensor_ret = aht10_service_init();
+
+		if (sensor_ret < 0) {
+			LOG_WRN("AHT10 service is unavailable: %d", sensor_ret);
+		} else {
+			aht10_available = true;
+			LOG_INF("AHT10 service ready");
+		}
+	}
+
 	app_init_result = ret;
 	k_sem_give(&app_ready_sem);
 
@@ -148,6 +161,8 @@ service_init_done:
 		case APP_EVENT_STATUS_TICK: {
 			struct app_state_snapshot snapshot;
 			atomic_val_t dropped;
+			int64_t temperature_milli_c;
+			int64_t humidity_milli_percent;
 
 			app_state_get_snapshot(&snapshot);
 			dropped = atomic_get(&dropped_event_count);
@@ -159,6 +174,21 @@ service_init_done:
 				snapshot.led_click_count,
 				snapshot.led_color_index,
 				(long)dropped);
+
+			if (aht10_available) {
+				ret = aht10_service_read(&temperature_milli_c,
+							 &humidity_milli_percent);
+				if (ret < 0) {
+					LOG_ERR("AHT10 read failed: %d", ret);
+					app_state_set_aht10_unavailable();
+				} else {
+					app_state_set_aht10_reading(temperature_milli_c,
+							      humidity_milli_percent);
+					LOG_INF("AHT10: temperature=%lld mC humidity=%lld m%%RH",
+						(long long)temperature_milli_c,
+						(long long)humidity_milli_percent);
+				}
+			}
 #if defined(CONFIG_APP_STACK_USAGE_LOG)
 			app_print_stack_usage();
 #endif

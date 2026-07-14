@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Aosong AHT10 digital-output humidity and temperature sensor.
+
+compatible: "aosong,aht10"
+
+include: [sensor-device.yaml, i2c-device.yaml]
