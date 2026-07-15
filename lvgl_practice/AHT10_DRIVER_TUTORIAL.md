@@ -17,7 +17,7 @@ aosong,aht10.yaml binding
 DT_HAS_AOSONG_AHT10_ENABLED
         |
         v
-CONFIG_WAVESHARE_35C_SENSOR_AHT10
+CONFIG_EJ3989_SENSOR_AHT10
         |
         v
 aht10.c 컴파일
@@ -37,7 +37,7 @@ sensor_sample_fetch() / sensor_channel_get()
 드라이버는 Zephyr 원본을 수정하지 않고 외부 모듈에 둔다.
 
 ```text
-EJ_APP/modules/waveshare_35c_drivers/
+EJ_APP/modules/ej3989_drivers/
 ├── zephyr/module.yml
 ├── Kconfig
 ├── CMakeLists.txt
@@ -57,7 +57,7 @@ binding 검색 경로로 사용한다.
 파일:
 
 ```text
-EJ_APP/modules/waveshare_35c_drivers/dts/bindings/sensor/aosong,aht10.yaml
+EJ_APP/modules/ej3989_drivers/dts/bindings/sensor/aosong,aht10.yaml
 ```
 
 내용:
@@ -122,7 +122,7 @@ rsource "drivers/sensor/Kconfig"
 sensor Kconfig:
 
 ```kconfig
-config WAVESHARE_35C_SENSOR_AHT10
+config EJ3989_SENSOR_AHT10
     bool "Aosong AHT10 temperature and humidity sensor"
     default y
     depends on SENSOR
@@ -143,7 +143,7 @@ config WAVESHARE_35C_SENSOR_AHT10
 ```conf
 CONFIG_I2C=y
 CONFIG_SENSOR=y
-CONFIG_WAVESHARE_35C_SENSOR_AHT10=y
+CONFIG_EJ3989_SENSOR_AHT10=y
 ```
 
 ## 6. CMake로 소스 선택하기
@@ -159,7 +159,7 @@ sensor CMake는 Kconfig가 활성화된 경우에만 소스를 컴파일한다.
 ```cmake
 zephyr_library()
 zephyr_library_sources_ifdef(
-    CONFIG_WAVESHARE_35C_SENSOR_AHT10
+    CONFIG_EJ3989_SENSOR_AHT10
     aht10.c
 )
 ```
@@ -408,7 +408,7 @@ rg -n "aht10|AOSONG_AHT10" \
 ### 최종 Kconfig
 
 ```sh
-rg -n "CONFIG_(SENSOR|I2C|WAVESHARE_35C_SENSOR_AHT10)=" \
+rg -n "CONFIG_(SENSOR|I2C|EJ3989_SENSOR_AHT10)=" \
   EJ_APP/build/zephyr/.config
 ```
 

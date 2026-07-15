@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
-config WAVESHARE_35C_SENSOR_AHT10
+config EJ3989_SENSOR_AHT10
 	bool "Aosong AHT10 temperature and humidity sensor"
 	default y
 	depends on SENSOR

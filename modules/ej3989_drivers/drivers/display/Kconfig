@@ -1,22 +1,22 @@
 # SPDX-License-Identifier: Apache-2.0
 
-config WAVESHARE_35C_ILI9XXX
+config EJ3989_ILI9XXX
 	bool
 	help
 	  Shared ILI9XXX core used by the Waveshare 3.5C ILI9486 driver.
 
-config WAVESHARE_35C_ILI9XXX_READ
+config EJ3989_ILI9XXX_READ
 	bool "Allow display_read API with Waveshare 3.5C ILI9XXX"
-	depends on WAVESHARE_35C_ILI9XXX
+	depends on EJ3989_ILI9XXX
 	help
 	  Optional read support for the out-of-tree ILI9XXX core.
 
-config WAVESHARE_35C_ILI9486
+config EJ3989_ILI9486
 	bool "Waveshare 3.5C ILI9486 display driver"
 	default y
 	depends on DT_HAS_ILITEK_ILI9486_ENABLED
 	select MIPI_DBI
-	select WAVESHARE_35C_ILI9XXX
+	select EJ3989_ILI9XXX
 	help
 	  Enable the out-of-tree ILI9486 driver used by the Waveshare/MHS
 	  3.5 inch Raspberry Pi style SPI LCD.

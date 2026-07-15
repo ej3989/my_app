@@ -1,4 +1,4 @@
-# Waveshare 3.5C Zephyr driver module
+# EJ3989 Zephyr driver module
 
 This is an out-of-tree Zephyr module for the Waveshare/MHS 3.5 inch
 Raspberry Pi style SPI LCD used by `EJ_APP/waveshare_35c`.
@@ -25,12 +25,12 @@ used by this board.
 
 ## App integration
 
-`EJ_APP/waveshare_35c/CMakeLists.txt` registers this module before
+`EJ_APP/lvgl_practice/CMakeLists.txt` registers this module before
 `find_package(Zephyr ...)`:
 
 ```cmake
 list(APPEND ZEPHYR_EXTRA_MODULES
-    ${CMAKE_CURRENT_LIST_DIR}/../modules/waveshare_35c_drivers
+    ${CMAKE_CURRENT_LIST_DIR}/../modules/ej3989_drivers
 )
 ```
 
@@ -39,9 +39,9 @@ module-specific symbols:
 
 ```conf
 CONFIG_ILI9486=n
-CONFIG_WAVESHARE_35C_ILI9486=y
+CONFIG_EJ3989_ILI9486=y
 CONFIG_INPUT_XPT2046=n
-CONFIG_WAVESHARE_35C_INPUT_XPT2046=y
+CONFIG_EJ3989_INPUT_XPT2046=y
 ```
 
 ## Migration note

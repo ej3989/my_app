@@ -14,7 +14,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(display_ili9xxx, CONFIG_DISPLAY_LOG_LEVEL);
 
-#ifdef CONFIG_WAVESHARE_35C_ILI9XXX_READ
+#ifdef CONFIG_EJ3989_ILI9XXX_READ
 
 /* We set this LUT directly when reads are enabled,
  * so that we can be sure the bitshift to convert GRAM data back
@@ -179,7 +179,7 @@ static int ili9xxx_write(const struct device *dev, const uint16_t x,
 	return 0;
 }
 
-#ifdef CONFIG_WAVESHARE_35C_ILI9XXX_READ
+#ifdef CONFIG_EJ3989_ILI9XXX_READ
 
 static int ili9xxx_read(const struct device *dev, const uint16_t x,
 			const uint16_t y,
@@ -491,7 +491,7 @@ static int ili9xxx_init(const struct device *dev)
 		return r;
 	}
 
-#ifdef CONFIG_WAVESHARE_35C_ILI9XXX_READ
+#ifdef CONFIG_EJ3989_ILI9XXX_READ
 	/* Set RGB LUT table to enable display read API */
 	ili9xxx_transmit(dev, ILI9XXX_RGBSET, ili9xxx_rgb_lut, sizeof(ili9xxx_rgb_lut));
 #endif
@@ -519,7 +519,7 @@ static DEVICE_API(display, ili9xxx_api) = {
 	.blanking_on = ili9xxx_display_blanking_on,
 	.blanking_off = ili9xxx_display_blanking_off,
 	.write = ili9xxx_write,
-#ifdef CONFIG_WAVESHARE_35C_ILI9XXX_READ
+#ifdef CONFIG_EJ3989_ILI9XXX_READ
 	.read = ili9xxx_read,
 #endif
 	.get_capabilities = ili9xxx_get_capabilities,
@@ -586,7 +586,7 @@ DT_INST_FOREACH_ILI9XXX_STATUS_OKAY(9341);
 DT_INST_FOREACH_ILI9XXX_STATUS_OKAY(9342c);
 #endif
 
-#ifdef CONFIG_WAVESHARE_35C_ILI9486
+#ifdef CONFIG_EJ3989_ILI9486
 #include "display_ili9486.h"
 DT_INST_FOREACH_ILI9XXX_STATUS_OKAY(9486);
 #endif

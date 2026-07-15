@@ -1,4 +1,4 @@
-name: waveshare_35c_drivers
+name: ej3989_drivers
 build:
   cmake: .
   kconfig: Kconfig
