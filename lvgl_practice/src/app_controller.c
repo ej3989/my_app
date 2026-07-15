@@ -3,6 +3,7 @@
 #include "app_state.h"
 #include "app_settings.h"
 #include "led_service.h"
+#include "max98357a_service.h"
 
 #include <errno.h>
 
@@ -122,6 +123,19 @@ service_init_done:
 		} else {
 			aht10_available = true;
 			LOG_INF("AHT10 service ready");
+		}
+	}
+
+	if (ret >= 0) {
+		int audio_ret = max98357a_service_init();
+
+		if (audio_ret < 0) {
+			LOG_WRN("MAX98357A service is unavailable: %d", audio_ret);
+		} else {
+			audio_ret = max98357a_service_play_test_tone();
+			if (audio_ret < 0) {
+				LOG_WRN("MAX98357A test tone failed: %d", audio_ret);
+			}
 		}
 	}
 

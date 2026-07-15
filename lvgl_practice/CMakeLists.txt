@@ -17,4 +17,5 @@ target_sources(app PRIVATE
     src/app_state.c
     src/app_settings.c
     src/aht10_service.c
+    src/max98357a_service.c
 )
