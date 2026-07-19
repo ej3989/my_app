@@ -4,13 +4,13 @@ menu "Internet radio"
 
 config APP_WIFI_SSID
 	string "Wi-Fi SSID"
-	default "SK_WiFiGIGA9572_2.4G"
+	default ""
 	help
 	  SSID used by the internet radio service.
 
 config APP_WIFI_PSK
 	string "Wi-Fi password"
-	default "BOS78@8145"
+	default ""
 	help
 	  WPA/WPA2 password. Leave empty only for an open network.
 
