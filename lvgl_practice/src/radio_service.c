@@ -10,6 +10,8 @@
 #include <zephyr/net/socket.h>
 #include <zephyr/sys/atomic.h>
 
+#include <esp_attr.h>
+
 #define MINIMP3_ONLY_MP3
 #define MINIMP3_NO_SIMD
 #define MINIMP3_IMPLEMENTATION
@@ -37,7 +39,7 @@ static atomic_t initialized;
 static atomic_t playing;
 static atomic_t stop_requested;
 static int active_socket = -1;
-static uint8_t mp3_buffer[RADIO_MP3_BUFFER_SIZE];
+static uint8_t mp3_buffer[RADIO_MP3_BUFFER_SIZE] EXT_RAM_BSS_ATTR;
 static mp3d_sample_t pcm_buffer[MINIMP3_MAX_SAMPLES_PER_FRAME];
 static mp3dec_t mp3_decoder;
 
