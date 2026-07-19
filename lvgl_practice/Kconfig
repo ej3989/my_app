@@ -1,5 +1,29 @@
 mainmenu "LVGL practice"
 
+menu "Internet radio"
+
+config APP_WIFI_SSID
+	string "Wi-Fi SSID"
+	default "SK_WiFiGIGA9572_2.4G"
+	help
+	  SSID used by the internet radio service.
+
+config APP_WIFI_PSK
+	string "Wi-Fi password"
+	default "BOS78@8145"
+	help
+	  WPA/WPA2 password. Leave empty only for an open network.
+
+config APP_RADIO_HOST
+	string "Internet radio host"
+	default "wrti-live.streamguys1.com"
+
+config APP_RADIO_PATH
+	string "Internet radio path"
+	default "/jazz-mp3"
+
+endmenu
+
 config LVGL_EJ_STACK_USAGE_LOG
 	bool "Print LVGL EJ stack usage"
 	select INIT_STACKS
