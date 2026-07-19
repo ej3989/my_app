@@ -22,6 +22,7 @@ static lv_obj_t *text_box;
 static lv_obj_t *log_label;
 static lv_obj_t *state_label;
 static lv_obj_t *aht10_label;
+static lv_obj_t *radio_button_label;
 static struct k_thread lvgl_ej_thread;
 K_THREAD_STACK_DEFINE(lvgl_ej_thread_stack, LVGL_EJ_THREAD_STACK_SIZE);
 
@@ -109,7 +110,7 @@ static void button_event_cb(lv_event_t *event)
 		int ret;
 
 		(void)app_state_increment_click_count();
-		ret = app_controller_send(APP_EVENT_RADIO_PLAY, 0);
+		ret = app_controller_send(APP_EVENT_RADIO_TOGGLE, 0);
 		if (ret < 0) {
 			snprintk(buf, sizeof(buf),
 				 "Radio event send failed: %d\n", ret);
@@ -117,8 +118,8 @@ static void button_event_cb(lv_event_t *event)
 			return;
 		}
 
-		lv_label_set_text(counter_label, "Radio: Starting...");
-		log_box_add_text("Internet radio event sent\n");
+		lv_label_set_text(counter_label, "Radio: Updating...");
+		log_box_add_text("Internet radio toggle event sent\n");
 	} else if (user_data->button_id == BUTTON_ID_SUB) {
 		char buf[64];
 		int ret;
@@ -215,7 +216,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	state_label = lv_label_create(setup_screen);
 
 	lv_label_set_text(state_label,
-			"Play: 0\nLED: 0\nColor: 0\n");
+			"Play: 0\nLED: 0\nColor: 0\nRadio: STOPPED");
 	lv_obj_set_style_text_color(state_label,
 			lv_color_hex(0xd9e2ec),
 			LV_PART_MAIN);
@@ -229,7 +230,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_obj_align(aht10_label, LV_ALIGN_TOP_MID, 0, 190);
 
 	counter_label = lv_label_create(main_screen);
-	lv_label_set_text(counter_label, "Radio: Idle");
+	lv_label_set_text(counter_label, "Radio: STOPPED");
 	lv_obj_set_style_text_color(counter_label, lv_color_hex(0xd9e2ec), LV_PART_MAIN);
 	lv_obj_align(counter_label, LV_ALIGN_TOP_MID, 0, 30);
 
@@ -243,10 +244,10 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_obj_align(button, LV_ALIGN_BOTTOM_MID, -50, -4);
 	lv_obj_add_event_cb(button, button_event_cb, LV_EVENT_CLICKED, &button_data);
 
-	lv_obj_t *button_label = lv_label_create(button);
+	radio_button_label = lv_label_create(button);
 
-	lv_label_set_text(button_label, "Play");
-	lv_obj_center(button_label);
+	lv_label_set_text(radio_button_label, "Play");
+	lv_obj_center(radio_button_label);
 
 	lv_obj_t *button1 = lv_button_create(main_screen);
 	static struct user_data_ej button1_data = {
@@ -361,12 +362,24 @@ static void ui_state_timer_cb(lv_timer_t *timer)
 	ARG_UNUSED(timer);
 
 	app_state_get_snapshot(&snapshot);
+	lv_label_set_text(radio_button_label,
+			      snapshot.radio_playing ? "Stop" : "Play");
+	lv_label_set_text(counter_label,
+			      snapshot.radio_playing
+				      ? "Radio: PLAYING"
+				      : "Radio: STOPPED");
+	lv_obj_set_style_text_color(counter_label,
+				    snapshot.radio_playing
+					    ? lv_color_hex(0x4ade80)
+					    : lv_color_hex(0xf87171),
+				    LV_PART_MAIN);
 
 	lv_label_set_text_fmt(state_label,
-			    "Play: %u\nLED: %u\nColor: %u",
+			    "Play: %u\nLED: %u\nColor: %u\nRadio: %s",
 			    snapshot.click_count,
 			    snapshot.led_click_count,
-			    snapshot.led_color_index);
+			    snapshot.led_color_index,
+			    snapshot.radio_playing ? "PLAYING" : "STOPPED");
 
 	if (!snapshot.aht10_valid) {
 		lv_label_set_text(aht10_label, "AHT10: unavailable");

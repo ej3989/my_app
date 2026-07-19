@@ -16,8 +16,9 @@ struct app_state_snapshot {
 	int64_t temperature_milli_c;
 	int64_t humidity_milli_percent;
     uint8_t led_color_index;
-    bool led_enabled;
+	bool led_enabled;
 	bool aht10_valid;
+	bool radio_playing;
 };
 
 void app_state_init(void);
@@ -31,6 +32,7 @@ void app_state_set_led_enabled(bool enabled);
 void app_state_set_aht10_reading(int64_t temperature_milli_c,
 				 int64_t humidity_milli_percent);
 void app_state_set_aht10_unavailable(void);
+void app_state_set_radio_playing(bool playing);
 
 void app_state_get_snapshot(struct app_state_snapshot *snapshot);
 

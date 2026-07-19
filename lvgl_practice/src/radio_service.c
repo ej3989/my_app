@@ -30,10 +30,13 @@ BUILD_ASSERT(RADIO_MP3_PREFILL_SIZE < RADIO_MP3_BUFFER_SIZE,
 
 K_THREAD_STACK_DEFINE(radio_thread_stack, RADIO_THREAD_STACK_SIZE);
 K_SEM_DEFINE(radio_start_sem, 0, 1);
+K_MUTEX_DEFINE(radio_socket_lock);
 
 static struct k_thread radio_thread;
 static atomic_t initialized;
 static atomic_t playing;
+static atomic_t stop_requested;
+static int active_socket = -1;
 static uint8_t mp3_buffer[RADIO_MP3_BUFFER_SIZE];
 static mp3d_sample_t pcm_buffer[MINIMP3_MAX_SAMPLES_PER_FRAME];
 static mp3dec_t mp3_decoder;
@@ -262,6 +265,10 @@ static int play_mp3_stream(int socket_fd, bool *audio_owned)
 		mp3dec_frame_info_t frame_info = { 0 };
 		int samples;
 
+		if (atomic_get(&stop_requested)) {
+			return -ECANCELED;
+		}
+
 		samples = mp3dec_decode_frame(&mp3_decoder, mp3_buffer,
 					      (int)used, pcm_buffer, &frame_info);
 		if (frame_info.frame_bytes == 0) {
@@ -355,6 +362,10 @@ static void radio_thread_handler(void *p1, void *p2, void *p3)
 			LOG_ERR("Radio Wi-Fi setup failed: %d", ret);
 			goto done;
 		}
+		if (atomic_get(&stop_requested)) {
+			ret = -ECANCELED;
+			goto done;
+		}
 
 		socket_fd = open_stream_socket();
 		if (socket_fd < 0) {
@@ -362,17 +373,34 @@ static void radio_thread_handler(void *p1, void *p2, void *p3)
 			goto done;
 		}
 
+		k_mutex_lock(&radio_socket_lock, K_FOREVER);
+		active_socket = socket_fd;
+		k_mutex_unlock(&radio_socket_lock);
+
+		if (atomic_get(&stop_requested)) {
+			ret = -ECANCELED;
+			goto done;
+		}
+
 		ret = play_mp3_stream(socket_fd, &audio_owned);
-		LOG_ERR("Radio stream stopped: %d", ret);
+		if (ret == -ECANCELED || atomic_get(&stop_requested)) {
+			LOG_INF("Radio playback stopped");
+		} else {
+			LOG_ERR("Radio stream stopped: %d", ret);
+		}
 		if (audio_owned) {
 			(void)max98357a_service_stream_stop(false);
 		}
 
 done:
 		if (socket_fd >= 0) {
+			k_mutex_lock(&radio_socket_lock, K_FOREVER);
+			active_socket = -1;
 			(void)zsock_close(socket_fd);
+			k_mutex_unlock(&radio_socket_lock);
 		}
 		atomic_clear(&playing);
+		atomic_clear(&stop_requested);
 	}
 }
 
@@ -413,6 +441,31 @@ int radio_service_start(void)
 		return -EALREADY;
 	}
 
+	atomic_clear(&stop_requested);
 	k_sem_give(&radio_start_sem);
 	return 0;
+}
+
+int radio_service_stop(void)
+{
+	if (!atomic_get(&playing)) {
+		return -EALREADY;
+	}
+
+	atomic_set(&stop_requested, 1);
+
+	/* Wake a blocking recv() so the radio thread can stop immediately. */
+	k_mutex_lock(&radio_socket_lock, K_FOREVER);
+	if (active_socket >= 0) {
+		(void)zsock_shutdown(active_socket, ZSOCK_SHUT_RDWR);
+	}
+	k_mutex_unlock(&radio_socket_lock);
+
+	return 0;
+}
+
+bool radio_service_is_playing(void)
+{
+	return atomic_get(&playing) != 0 &&
+	       atomic_get(&stop_requested) == 0;
 }

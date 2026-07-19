@@ -191,14 +191,23 @@ service_init_done:
 				LOG_INF("Audio playback requested");
 			}
 			break;
-		case APP_EVENT_RADIO_PLAY:
-			ret = radio_service_start();
-			if (ret == -EALREADY) {
-				LOG_WRN("Internet radio is already playing");
-			} else if (ret < 0) {
-				LOG_ERR("Internet radio request failed: %d", ret);
+		case APP_EVENT_RADIO_TOGGLE:
+			if (radio_service_is_playing()) {
+				ret = radio_service_stop();
+				if (ret < 0) {
+					LOG_ERR("Internet radio stop failed: %d", ret);
+				} else {
+					app_state_set_radio_playing(false);
+					LOG_INF("Internet radio stop requested");
+				}
 			} else {
-				LOG_INF("Internet radio playback requested");
+				ret = radio_service_start();
+				if (ret < 0) {
+					LOG_ERR("Internet radio request failed: %d", ret);
+				} else {
+					app_state_set_radio_playing(true);
+					LOG_INF("Internet radio playback requested");
+				}
 			}
 			break;
 		case APP_EVENT_STATUS_TICK: {
@@ -208,6 +217,7 @@ service_init_done:
 			int64_t humidity_milli_percent;
 
 			app_state_get_snapshot(&snapshot);
+			app_state_set_radio_playing(radio_service_is_playing());
 			dropped = atomic_get(&dropped_event_count);
 
 			LOG_INF("Status: uptime=%u screen=%d tap=%u led=%u color=%u dropped=%ld",

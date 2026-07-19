@@ -16,6 +16,7 @@ void app_state_init(void)
         .led_color_index = 0,
         .led_enabled = true,
 		.aht10_valid = false,
+		.radio_playing = false,
     };
 
     k_mutex_unlock(&state_lock);
@@ -78,6 +79,13 @@ void app_state_set_aht10_unavailable(void)
 {
 	k_mutex_lock(&state_lock, K_FOREVER);
 	state.aht10_valid = false;
+	k_mutex_unlock(&state_lock);
+}
+
+void app_state_set_radio_playing(bool playing)
+{
+	k_mutex_lock(&state_lock, K_FOREVER);
+	state.radio_playing = playing;
 	k_mutex_unlock(&state_lock);
 }
 
