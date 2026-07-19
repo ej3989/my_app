@@ -107,19 +107,18 @@ static void button_event_cb(lv_event_t *event)
 	if (user_data->button_id == BUTTON_ID_MAIN) {
 		char buf[64];
 		int ret;
-		uint32_t count;
 
-		count = app_state_increment_click_count();
-		lv_label_set_text_fmt(counter_label, "Clicked: %u", count);
-
-		snprintk(buf, sizeof(buf), "Clicked: %u\n", count);
-		log_box_add_text(buf);
-
-		ret = app_controller_send_log("Tap Button clicked");
+		(void)app_state_increment_click_count();
+		ret = app_controller_send(APP_EVENT_RADIO_PLAY, 0);
 		if (ret < 0) {
-			snprintk(buf, sizeof(buf), "Log send failed: %d\n", ret);
+			snprintk(buf, sizeof(buf),
+				 "Radio event send failed: %d\n", ret);
 			log_box_add_text(buf);
+			return;
 		}
+
+		lv_label_set_text(counter_label, "Radio: Starting...");
+		log_box_add_text("Internet radio event sent\n");
 	} else if (user_data->button_id == BUTTON_ID_SUB) {
 		char buf[64];
 		int ret;
@@ -134,6 +133,17 @@ static void button_event_cb(lv_event_t *event)
 		log_box_add_text("LED event sent\n");
 
 	} else if (user_data->button_id == BUTTON_ID_MSGBOX) {
+		int ret;
+
+		ret = app_controller_send(APP_EVENT_AUDIO_PLAY, 0);
+		if (ret < 0) {
+			char buf[64];
+
+			snprintk(buf, sizeof(buf),
+				 "Audio event send failed: %d\n", ret);
+			log_box_add_text(buf);
+		}
+
 		lv_obj_t *mbox = lv_msgbox_create(NULL);
 		lv_msgbox_add_title(mbox, "Title");
 		lv_msgbox_add_text(mbox, "Hello from LVGL EJ");
@@ -205,7 +215,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	state_label = lv_label_create(setup_screen);
 
 	lv_label_set_text(state_label,
-			"Tap: 0\nLED: 0\nColor: 0\n");
+			"Play: 0\nLED: 0\nColor: 0\n");
 	lv_obj_set_style_text_color(state_label,
 			lv_color_hex(0xd9e2ec),
 			LV_PART_MAIN);
@@ -219,7 +229,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 	lv_obj_align(aht10_label, LV_ALIGN_TOP_MID, 0, 190);
 
 	counter_label = lv_label_create(main_screen);
-	lv_label_set_text(counter_label, "Clicked: 0");
+	lv_label_set_text(counter_label, "Radio: Idle");
 	lv_obj_set_style_text_color(counter_label, lv_color_hex(0xd9e2ec), LV_PART_MAIN);
 	lv_obj_align(counter_label, LV_ALIGN_TOP_MID, 0, 30);
 
@@ -235,7 +245,7 @@ static void lvgl_ej_thread_handler(void *p1, void *p2, void *p3)
 
 	lv_obj_t *button_label = lv_label_create(button);
 
-	lv_label_set_text(button_label, "Tap");
+	lv_label_set_text(button_label, "Play");
 	lv_obj_center(button_label);
 
 	lv_obj_t *button1 = lv_button_create(main_screen);
@@ -353,7 +363,7 @@ static void ui_state_timer_cb(lv_timer_t *timer)
 	app_state_get_snapshot(&snapshot);
 
 	lv_label_set_text_fmt(state_label,
-			    "Tap: %u\nLED: %u\nColor: %u",
+			    "Play: %u\nLED: %u\nColor: %u",
 			    snapshot.click_count,
 			    snapshot.led_click_count,
 			    snapshot.led_color_index);

@@ -4,6 +4,7 @@
 #include "app_settings.h"
 #include "led_service.h"
 #include "max98357a_service.h"
+#include "radio_service.h"
 
 #include <errno.h>
 
@@ -132,10 +133,18 @@ service_init_done:
 		if (audio_ret < 0) {
 			LOG_WRN("MAX98357A service is unavailable: %d", audio_ret);
 		} else {
-			audio_ret = max98357a_service_play_test_tone();
+			audio_ret = max98357a_service_play_startup_wav();
 			if (audio_ret < 0) {
-				LOG_WRN("MAX98357A test tone failed: %d", audio_ret);
+				LOG_WRN("MAX98357A startup WAV failed: %d", audio_ret);
 			}
+		}
+	}
+
+	if (ret >= 0) {
+		int radio_ret = radio_service_init();
+
+		if (radio_ret < 0) {
+			LOG_WRN("Internet radio service is unavailable: %d", radio_ret);
 		}
 	}
 
@@ -172,6 +181,26 @@ service_init_done:
 			(void)k_work_reschedule(&settings_save_work, K_SECONDS(2));
 			break;
 		}
+		case APP_EVENT_AUDIO_PLAY:
+			ret = max98357a_service_play_startup_wav();
+			if (ret == -EBUSY) {
+				LOG_WRN("Audio is already playing");
+			} else if (ret < 0) {
+				LOG_ERR("Audio playback request failed: %d", ret);
+			} else {
+				LOG_INF("Audio playback requested");
+			}
+			break;
+		case APP_EVENT_RADIO_PLAY:
+			ret = radio_service_start();
+			if (ret == -EALREADY) {
+				LOG_WRN("Internet radio is already playing");
+			} else if (ret < 0) {
+				LOG_ERR("Internet radio request failed: %d", ret);
+			} else {
+				LOG_INF("Internet radio playback requested");
+			}
+			break;
 		case APP_EVENT_STATUS_TICK: {
 			struct app_state_snapshot snapshot;
 			atomic_val_t dropped;

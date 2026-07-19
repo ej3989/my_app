@@ -18,4 +18,17 @@ target_sources(app PRIVATE
     src/app_settings.c
     src/aht10_service.c
     src/max98357a_service.c
+    src/wifi_service.c
+    src/radio_service.c
+)
+
+target_include_directories(app PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/minimp3
+)
+
+set(gen_dir ${ZEPHYR_BINARY_DIR}/include/generated)
+generate_inc_file_for_target(
+    app
+    ${CMAKE_CURRENT_SOURCE_DIR}/assert/8-xp.wav
+    ${gen_dir}/8_xp_wav.inc
 )
