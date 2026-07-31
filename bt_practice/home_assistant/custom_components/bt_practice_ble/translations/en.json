@@ -1,0 +1,23 @@
+{
+  "title": "BT Practice BLE",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select a BT Practice device",
+        "description": "Select a BT Practice device discovered by Home Assistant.",
+        "data": {
+          "address": "Bluetooth device"
+        }
+      },
+      "confirm": {
+        "title": "Add {name}",
+        "description": "Do you want to add this BLE device to Home Assistant?"
+      }
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "no_devices_found": "No connectable BT Practice devices were found."
+    }
+  }
+}
+

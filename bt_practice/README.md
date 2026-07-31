@@ -9,7 +9,7 @@ ESP32-S3 DevKitC에서 Zephyr Bluetooth LE를 단계별로 실습하는 프로�
 3. GATT characteristic read/write 실습 (완료)
 4. BLE 명령으로 보드 RGB LED 제어 (완료)
 5. 상태 notification 실습 (현재 단계)
-6. Home Assistant 연동 방식 결정 및 구현
+6. Home Assistant BLE 연동 (현재 단계)
 
 현재 코드는 `BT_Practice`라는 이름으로 connectable advertising을 시작하고,
 연결/해제 정보를 콘솔에 기록합니다. 사용자 정의 GATT characteristic에
@@ -85,3 +85,9 @@ west espressif monitor
 
 구독하지 않은 상태에서도 Read와 Write는 정상 동작합니다. 이 경우 보드에는
 `Notification skipped: client is not subscribed` 로그가 표시됩니다.
+
+## Home Assistant BLE 연동
+
+MQTT나 Wi-Fi를 사용하지 않고 Home Assistant가 이 GATT service에 직접 연결하는
+custom integration을 `home_assistant/` 폴더에 준비했습니다. 설치와 등록 방법은
+[`home_assistant/README.md`](home_assistant/README.md)를 참고합니다.

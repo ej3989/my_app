@@ -28,8 +28,10 @@ LOG_MODULE_REGISTER(bt_practice, LOG_LEVEL_INF);
 static const struct device *const led_strip = DEVICE_DT_GET(LED_STRIP_NODE);
 static struct led_rgb led_pixel;
 static uint8_t led_state;
+static struct k_work advertising_work;
 
 static int notify_led_state(struct bt_conn *conn);
+static int start_advertising(void);
 
 static const struct bt_data advertising_data[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
@@ -166,9 +168,15 @@ static void connected(struct bt_conn *conn, uint8_t err)
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
 	char address[BT_ADDR_LE_STR_LEN];
+	int err;
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), address, sizeof(address));
 	LOG_INF("Disconnected: %s (reason 0x%02x)", address, reason);
+
+	err = k_work_submit(&advertising_work);
+	if (err < 0) {
+		LOG_ERR("Failed to schedule advertising restart (err %d)", err);
+	}
 }
 
 BT_CONN_CB_DEFINE(connection_callbacks) = {
@@ -192,6 +200,14 @@ static int start_advertising(void)
 	return 0;
 }
 
+static void advertising_work_handler(struct k_work *work)
+{
+	ARG_UNUSED(work);
+
+	LOG_INF("Restarting advertising");
+	(void)start_advertising();
+}
+
 int main(void)
 {
 	int err;
@@ -202,6 +218,8 @@ int main(void)
 		LOG_ERR("RGB LED device is not ready");
 		return -ENODEV;
 	}
+
+	k_work_init(&advertising_work, advertising_work_handler);
 
 	err = set_led_state(0U);
 	if (err != 0) {

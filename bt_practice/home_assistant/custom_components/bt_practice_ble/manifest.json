@@ -1,0 +1,18 @@
+{
+  "domain": "bt_practice_ble",
+  "name": "BT Practice BLE",
+  "bluetooth": [
+    {
+      "service_uuid": "9f1d1000-3d2f-4f3a-8b11-123456789abc",
+      "connectable": true
+    }
+  ],
+  "config_flow": true,
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://developers.home-assistant.io/docs/bluetooth/",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}
+
