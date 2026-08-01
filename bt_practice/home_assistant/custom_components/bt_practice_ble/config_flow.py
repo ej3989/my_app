@@ -13,7 +13,7 @@ from homeassistant.components.bluetooth import (
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_ADDRESS
 
-from .const import DOMAIN, LED_SERVICE_UUID
+from .const import DOMAIN, FAN_SERVICE_UUID
 
 
 class BTPracticeBLEConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -83,7 +83,7 @@ class BTPracticeBLEConfigFlow(ConfigFlow, domain=DOMAIN):
             if (
                 discovery_info.address in current_addresses
                 or discovery_info.address in self._discovered_devices
-                or LED_SERVICE_UUID not in service_uuids
+                or FAN_SERVICE_UUID not in service_uuids
                 or not discovery_info.connectable
             ):
                 continue
@@ -108,4 +108,3 @@ class BTPracticeBLEConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
         )
-

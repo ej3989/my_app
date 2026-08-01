@@ -1,16 +1,17 @@
-"""Switch platform for BT Practice BLE."""
+"""Fan platform for BT Practice BLE."""
 
 from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
 import logging
+import math
 from typing import Any
 
 from bleak import BleakClient, BleakError
 
 from homeassistant.components import bluetooth
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant, callback
@@ -19,7 +20,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN, LED_CONTROL_UUID
+from .const import DOMAIN, FAN_COMMAND_UUID, FAN_STATE_UUID
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,36 +28,53 @@ CONNECT_TIMEOUT = 20.0
 COMMAND_TIMEOUT = 30.0
 RECONNECT_DELAYS = (1, 2, 4, 8, 15, 30)
 
+COMMAND_SET_SPEED = 0x01
+COMMAND_SET_OSCILLATION = 0x02
+COMMAND_POWER_OFF = 0x03
+
+SPEED_COUNT = 3
+SPEED_PERCENTAGES = (0, 33, 67, 100)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the BT Practice BLE switch."""
-    async_add_entities([BTPracticeLEDSwitch(entry)])
+    """Set up the BT Practice BLE fan."""
+    async_add_entities([BTPracticeFan(entry)])
 
 
-class BTPracticeLEDSwitch(SwitchEntity):
-    """Control the BT Practice RGB LED over a persistent BLE connection."""
+class BTPracticeFan(FanEntity):
+    """Control a three-speed mechanical fan over persistent BLE."""
 
     _attr_has_entity_name = True
-    _attr_name = "LED"
+    _attr_name = None
     _attr_should_poll = False
+    _attr_speed_count = SPEED_COUNT
+    _attr_supported_features = (
+        FanEntityFeature.SET_SPEED
+        | FanEntityFeature.OSCILLATE
+        | FanEntityFeature.TURN_ON
+        | FanEntityFeature.TURN_OFF
+    )
 
     def __init__(self, entry: ConfigEntry) -> None:
-        """Initialize the switch."""
+        """Initialize the fan entity."""
         self._entry = entry
         self._address = entry.data[CONF_ADDRESS]
-        self._attr_unique_id = f"{self._address}_led"
+        self._attr_unique_id = f"{self._address}_fan"
         self._attr_is_on = False
+        self._attr_percentage = 0
+        self._attr_oscillating = False
         self._attr_available = False
+        self._last_nonzero_speed = 1
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self._address)},
             connections={(dr.CONNECTION_BLUETOOTH, self._address)},
             name=entry.title,
             manufacturer="Zephyr practice",
-            model="ESP32-S3 BLE RGB LED",
+            model="ESP32-S3 BLE relay fan controller",
         )
 
         self._client: BleakClient | None = None
@@ -71,7 +89,7 @@ class BTPracticeLEDSwitch(SwitchEntity):
         self._connection_task = self._entry.async_create_background_task(
             self.hass,
             self._async_connection_loop(),
-            f"BT Practice BLE connection {self._address}",
+            f"BT Practice BLE fan connection {self._address}",
         )
 
     async def async_will_remove_from_hass(self) -> None:
@@ -100,20 +118,31 @@ class BTPracticeLEDSwitch(SwitchEntity):
         self.async_write_ha_state()
 
     @callback
-    def _async_handle_notification(self, state: int) -> None:
-        """Apply an LED state received by GATT notification."""
-        self._attr_is_on = state == 1
+    def _async_handle_notification(self, data: bytes | bytearray) -> None:
+        """Apply speed and oscillation received from the board."""
+        if len(data) < 2 or data[0] > SPEED_COUNT or data[1] > 1:
+            _LOGGER.warning("Ignored invalid fan state packet: %s", data.hex())
+            return
+
+        speed = data[0]
+        if speed > 0:
+            self._last_nonzero_speed = speed
+
+        self._attr_is_on = speed > 0
+        self._attr_percentage = SPEED_PERCENTAGES[speed]
+        self._attr_oscillating = data[1] == 1
         self._attr_available = True
         self.async_write_ha_state()
-        _LOGGER.debug("Received LED state notification: %s", state)
+        _LOGGER.debug(
+            "Received fan state: speed=%s oscillation=%s",
+            speed,
+            self._attr_oscillating,
+        )
 
     def _notification_handler(self, _characteristic: Any, data: bytearray) -> None:
         """Receive a notification from Bleak."""
-        if not data:
-            return
-
         self.hass.loop.call_soon_threadsafe(
-            self._async_handle_notification, data[0]
+            self._async_handle_notification, bytes(data)
         )
 
     async def _async_wait_for_stop(self, delay: int) -> None:
@@ -144,7 +173,7 @@ class BTPracticeLEDSwitch(SwitchEntity):
             task.result()
 
     async def _async_connection_loop(self) -> None:
-        """Maintain the BLE connection and notification subscription."""
+        """Maintain the BLE connection and state notification subscription."""
         reconnect_index = 0
 
         while not self._stop_event.is_set():
@@ -158,7 +187,7 @@ class BTPracticeLEDSwitch(SwitchEntity):
                 ble_device = self._async_ble_device()
                 if ble_device is None:
                     _LOGGER.debug(
-                        "BT Practice device %s is not currently advertising",
+                        "BT Practice fan %s is not currently advertising",
                         self._address,
                     )
                 else:
@@ -171,21 +200,21 @@ class BTPracticeLEDSwitch(SwitchEntity):
                     async with asyncio.timeout(CONNECT_TIMEOUT):
                         await client.connect()
                         await client.start_notify(
-                            LED_CONTROL_UUID, self._notification_handler
+                            FAN_STATE_UUID, self._notification_handler
                         )
-                        value = await client.read_gatt_char(LED_CONTROL_UUID)
+                        value = await client.read_gatt_char(FAN_STATE_UUID)
 
                     async with self._operation_lock:
                         self._client = client
                         self._client_ready.set()
 
                     if value:
-                        self._async_handle_notification(value[0])
+                        self._async_handle_notification(value)
                     else:
                         self._async_set_available(True)
 
                     _LOGGER.info(
-                        "Connected to BT Practice device %s and subscribed",
+                        "Connected to BT Practice fan %s and subscribed",
                         self._address,
                     )
                     reconnect_index = 0
@@ -210,7 +239,7 @@ class BTPracticeLEDSwitch(SwitchEntity):
 
                 if client is not None and client.is_connected:
                     try:
-                        await client.stop_notify(LED_CONTROL_UUID)
+                        await client.stop_notify(FAN_STATE_UUID)
                     except (BleakError, TimeoutError):
                         pass
 
@@ -227,13 +256,13 @@ class BTPracticeLEDSwitch(SwitchEntity):
                 reconnect_index + 1, len(RECONNECT_DELAYS) - 1
             )
             _LOGGER.debug(
-                "Reconnecting to BT Practice device in %s seconds",
+                "Reconnecting to BT Practice fan in %s seconds",
                 reconnect_delay,
             )
             await self._async_wait_for_stop(reconnect_delay)
 
-    async def _async_write_state(self, state: bool) -> None:
-        """Write an LED state using the persistent GATT connection."""
+    async def _async_write_command(self, command: int, value: int) -> None:
+        """Write a two-byte command over the persistent GATT connection."""
         try:
             async with asyncio.timeout(COMMAND_TIMEOUT):
                 await self._client_ready.wait()
@@ -251,8 +280,8 @@ class BTPracticeLEDSwitch(SwitchEntity):
 
             try:
                 await client.write_gatt_char(
-                    LED_CONTROL_UUID,
-                    bytes((1 if state else 0,)),
+                    FAN_COMMAND_UUID,
+                    bytes((command, value)),
                     response=True,
                 )
             except (BleakError, TimeoutError) as err:
@@ -263,19 +292,61 @@ class BTPracticeLEDSwitch(SwitchEntity):
                 except (BleakError, TimeoutError):
                     pass
                 raise HomeAssistantError(
-                    f"BT Practice LED 제어에 실패했습니다: {err}"
+                    f"BT Practice 선풍기 제어에 실패했습니다: {err}"
                 ) from err
 
-        # The notification normally updates this state first. Updating it here
-        # also keeps the entity responsive if a platform delays notifications.
-        self._attr_is_on = state
-        self._attr_available = True
+    async def async_turn_on(
+        self,
+        percentage: int | None = None,
+        preset_mode: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Turn on at the requested or most recently used speed."""
+        del preset_mode, kwargs
+        if percentage is None:
+            speed = self._last_nonzero_speed
+        else:
+            speed = self._speed_from_percentage(percentage)
+            if speed == 0:
+                speed = 1
+
+        await self._async_write_command(COMMAND_SET_SPEED, speed)
+        self._last_nonzero_speed = speed
+        self._attr_is_on = True
+        self._attr_percentage = SPEED_PERCENTAGES[speed]
         self.async_write_ha_state()
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the RGB LED on."""
-        await self._async_write_state(True)
-
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the RGB LED off."""
-        await self._async_write_state(False)
+        """Turn off all speed relays and the oscillation relay."""
+        del kwargs
+        await self._async_write_command(COMMAND_POWER_OFF, 0)
+        self._attr_is_on = False
+        self._attr_percentage = 0
+        self._attr_oscillating = False
+        self.async_write_ha_state()
+
+    async def async_set_percentage(self, percentage: int) -> None:
+        """Select one of the three mutually exclusive speed relays."""
+        speed = self._speed_from_percentage(percentage)
+        await self._async_write_command(COMMAND_SET_SPEED, speed)
+
+        if speed > 0:
+            self._last_nonzero_speed = speed
+        self._attr_is_on = speed > 0
+        self._attr_percentage = SPEED_PERCENTAGES[speed]
+        self.async_write_ha_state()
+
+    async def async_oscillate(self, oscillating: bool) -> None:
+        """Hold the active-high oscillation relay on or off."""
+        await self._async_write_command(
+            COMMAND_SET_OSCILLATION, 1 if oscillating else 0
+        )
+        self._attr_oscillating = oscillating
+        self.async_write_ha_state()
+
+    @staticmethod
+    def _speed_from_percentage(percentage: int) -> int:
+        """Map Home Assistant's percentage to relay speed 0..3."""
+        if percentage <= 0:
+            return 0
+        return min(SPEED_COUNT, math.ceil(percentage * SPEED_COUNT / 100))
