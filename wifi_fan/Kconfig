@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+
+mainmenu "Wi-Fi fan controller"
+
+menu "Wi-Fi fan settings"
+
+config WIFI_FAN_WIFI_SSID
+	string "Wi-Fi SSID"
+	default ""
+
+config WIFI_FAN_WIFI_PASSWORD
+	string "Wi-Fi password"
+	default ""
+
+config WIFI_FAN_MQTT_HOST
+	string "MQTT broker IPv4 address"
+	default "192.168.0.66"
+
+config WIFI_FAN_MQTT_PORT
+	int "MQTT broker port"
+	default 1883
+	range 1 65535
+
+config WIFI_FAN_MQTT_USERNAME
+	string "MQTT username (empty for anonymous)"
+	default ""
+
+config WIFI_FAN_MQTT_PASSWORD
+	string "MQTT password (empty for anonymous)"
+	default ""
+
+endmenu
+
+source "Kconfig.zephyr"

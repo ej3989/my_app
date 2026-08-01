@@ -1,0 +1,11 @@
+# Copy this file to wifi_fan_private.conf and replace the example values.
+# wifi_fan_private.conf is intentionally ignored by Git.
+
+CONFIG_WIFI_FAN_WIFI_SSID="YOUR_WIFI_SSID"
+CONFIG_WIFI_FAN_WIFI_PASSWORD="YOUR_WIFI_PASSWORD"
+
+# Raspberry Pi / Mosquitto address and credentials
+CONFIG_WIFI_FAN_MQTT_HOST="192.168.0.66"
+CONFIG_WIFI_FAN_MQTT_PORT=1883
+CONFIG_WIFI_FAN_MQTT_USERNAME=""
+CONFIG_WIFI_FAN_MQTT_PASSWORD=""
