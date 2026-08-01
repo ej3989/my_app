@@ -42,10 +42,15 @@ bt_practice/home_assistant/custom_components/bt_practice_ble
 5. 자동 발견되지 않으면 `통합 구성요소 추가`에서 `BT Practice BLE`를 검색합니다.
 6. 발견된 `BT_Practice` 장치를 선택합니다.
 
-등록 후 `BT_Practice LED` 스위치가 생성됩니다. 스위치를 켜면 GATT에 `0x01`,
-끄면 `0x00`을 씁니다. 60초마다 characteristic을 읽어 상태를 동기화합니다.
-보드 펌웨어는 Home Assistant가 연결을 종료할 때마다 advertising을 다시 시작하므로,
-다음 ON/OFF 명령에서도 새 연결을 받을 수 있습니다.
+등록 후 `BT_Practice LED` 스위치가 생성됩니다. Home Assistant는 보드와 BLE 연결을
+유지하고 LED characteristic의 notification을 구독합니다. 스위치를 켜면 GATT에
+`0x01`, 끄면 `0x00`을 기존 연결로 즉시 씁니다. 상태 변화는 notification으로
+동기화하므로 60초 polling을 사용하지 않습니다.
+
+연결이 끊어지면 기존 Bleak client를 폐기하고 새 client로 재연결합니다. 재시도 간격은
+1, 2, 4, 8, 15, 30초로 늘어나며, 연결되면 characteristic을 다시 읽고 notification을
+다시 구독합니다. Home Assistant가 연결된 동안에는 LightBlue에서 같은 보드에 동시에
+연결할 수 없습니다.
 
 ## 문제 확인
 
