@@ -8,5 +8,15 @@ target_sources(app PRIVATE
   src/main.c
   src/fan_controller.c
   src/wifi_manager.c
+  src/time_manager.c
+  src/mqtt_tls.c
   src/mqtt_fan.c
+)
+
+set(gen_dir ${ZEPHYR_BINARY_DIR}/include/generated)
+
+generate_inc_file_for_target(
+  app
+  ${APPLICATION_SOURCE_DIR}/certs/fan-ca.crt
+  ${gen_dir}/fan-ca.crt.inc
 )

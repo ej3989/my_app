@@ -6,15 +6,17 @@ ESP32-S3 DevKitC, Zephyr Wi-Fi, MQTT를 이용해 3단 기계식 선풍기를 �
 ## 전체 구조
 
 ```text
-Home Assistant ── MQTT ── Mosquitto (192.168.0.66)
-                              │
-                         Wi-Fi 공유기
-                              │
-                          ESP32-S3
-                              │
-                 Active High 릴레이 4개
-                              │
-                           선풍기
+Home Assistant ── local MQTT 1883 ── Mosquitto / Raspberry Pi
+                                           │
+                                    TLS MQTT 8883
+                                           │
+                           Internet + mqtt.example.com
+                                           │
+                                       ESP32-S3
+                                           │
+                              Active High 릴레이 4개
+                                           │
+                                        선풍기
 ```
 
 Home Assistant MQTT discovery를 사용하므로 별도의 custom component가 필요하지
@@ -51,17 +53,20 @@ cp wifi_fan_private.conf.example wifi_fan_private.conf
 CONFIG_WIFI_FAN_WIFI_SSID="YOUR_WIFI_SSID"
 CONFIG_WIFI_FAN_WIFI_PASSWORD="YOUR_WIFI_PASSWORD"
 
-CONFIG_WIFI_FAN_MQTT_HOST="192.168.0.66"
-CONFIG_WIFI_FAN_MQTT_PORT=1883
-CONFIG_WIFI_FAN_MQTT_USERNAME=""
-CONFIG_WIFI_FAN_MQTT_PASSWORD=""
+# 서버 인증서의 DNS 이름과 TLS 포트
+CONFIG_WIFI_FAN_MQTT_HOST="mqtt.example.com"
+CONFIG_WIFI_FAN_MQTT_PORT=8883
+CONFIG_WIFI_FAN_MQTT_USERNAME="wifi_fan_device"
+CONFIG_WIFI_FAN_MQTT_PASSWORD="MOSQUITTO_DEVICE_PASSWORD"
 ```
 
-Mosquitto가 인증을 요구하면 사용자 이름과 비밀번호를 입력합니다. 이 파일은
-`.gitignore`에 등록되어 Git에 포함되지 않습니다.
+MQTT 비밀번호는 `mosquitto_passwd`로 `wifi_fan_device`에 설정한 값과 같아야
+합니다. 이 파일은 `.gitignore`에 등록되어 Git에 포함되지 않습니다.
 
-현재 구현은 로컬 네트워크의 일반 MQTT 포트 1883을 사용합니다. 인터넷에 MQTT
-포트를 노출하지 마십시오. 외부 네트워크를 통과해야 한다면 TLS 구성이 필요합니다.
+`certs/fan-ca.crt`는 자체 CA의 공개 인증서이며 빌드할 때 펌웨어의 읽기 전용
+영역에 포함됩니다. CA 비밀키와 Mosquitto 서버 비밀키는 이 프로젝트에 복사하지
+않습니다. 외부에는 TLS 포트 8883만 포트포워딩하고 평문 포트 1883은 공개하지
+않습니다.
 
 ## 2. 빌드와 실행
 
@@ -86,13 +91,22 @@ west espressif monitor
 ```text
 Wi-Fi fan controller start
 All active-high relays initialized OFF
+MQTT CA certificate registered
 Connecting to Wi-Fi SSID '...'
 Connected to Wi-Fi access point
 IPv4 address acquired
-Connecting to MQTT broker 192.168.0.66:1883
+Synchronizing time with 'pool.ntp.org'
+System time synchronized (epoch ...)
+Resolved MQTT host 'mqtt.example.com' to ...
+Connecting to MQTT broker mqtt.example.com:8883
 Connected to MQTT broker
 Wi-Fi RSSI: -XX dBm
 ```
+
+TLS 인증서 유효기간을 검증하려면 현재 시간이 필요합니다. 따라서 최초 부팅은
+Wi-Fi와 DHCP 연결 후 SNTP 시간 동기화를 완료해야 MQTT TLS 연결을 시작합니다.
+CA 서명, `mqtt.example.com` 호스트 이름, 인증서 유효기간 중 하나라도 맞지 않으면
+연결을 거부합니다.
 
 ## 3. Home Assistant 확인
 

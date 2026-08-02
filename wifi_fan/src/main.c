@@ -5,6 +5,8 @@
 
 #include "fan_controller.h"
 #include "mqtt_fan.h"
+#include "mqtt_tls.h"
+#include "time_manager.h"
 #include "wifi_manager.h"
 
 LOG_MODULE_REGISTER(wifi_fan, LOG_LEVEL_INF);
@@ -25,6 +27,11 @@ int main(void)
 		return err;
 	}
 
+	err = mqtt_tls_init();
+	if (err != 0) {
+		return err;
+	}
+
 	while (true) {
 		if (!wifi_manager_is_connected()) {
 			err = wifi_manager_connect();
@@ -33,6 +40,13 @@ int main(void)
 				k_sleep(K_SECONDS(10));
 				continue;
 			}
+		}
+
+		err = time_manager_sync();
+		if (err != 0) {
+			LOG_WRN("Time unavailable; retrying in 10 seconds");
+			k_sleep(K_SECONDS(10));
+			continue;
 		}
 
 		err = mqtt_fan_run();

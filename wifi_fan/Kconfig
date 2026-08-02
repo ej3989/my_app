@@ -13,21 +13,30 @@ config WIFI_FAN_WIFI_PASSWORD
 	default ""
 
 config WIFI_FAN_MQTT_HOST
-	string "MQTT broker IPv4 address"
-	default "192.168.0.66"
+	string "TLS MQTT broker hostname"
+	default "ej3989.iptime.org"
 
 config WIFI_FAN_MQTT_PORT
-	int "MQTT broker port"
-	default 1883
+	int "TLS MQTT broker port"
+	default 8883
 	range 1 65535
 
 config WIFI_FAN_MQTT_USERNAME
-	string "MQTT username (empty for anonymous)"
-	default ""
+	string "MQTT username"
+	default "wifi_fan_device"
 
 config WIFI_FAN_MQTT_PASSWORD
-	string "MQTT password (empty for anonymous)"
+	string "MQTT password"
 	default ""
+
+config WIFI_FAN_SNTP_HOST
+	string "SNTP server hostname"
+	default "pool.ntp.org"
+
+config WIFI_FAN_SNTP_PORT
+	int "SNTP server port"
+	default 123
+	range 1 65535
 
 endmenu
 

@@ -14,6 +14,7 @@
 
 #include "fan_controller.h"
 #include "mqtt_fan.h"
+#include "mqtt_tls.h"
 #include "wifi_manager.h"
 
 LOG_MODULE_REGISTER(mqtt_fan, LOG_LEVEL_INF);
@@ -357,29 +358,64 @@ static int subscribe_to_commands(void)
 
 static int mqtt_socket_poll(int timeout_ms)
 {
-	mqtt_poll_fd.fd = mqtt_client_ctx.transport.tcp.sock;
+	mqtt_poll_fd.fd = mqtt_client_ctx.transport.tls.sock;
 	mqtt_poll_fd.events = POLLIN;
 	mqtt_poll_fd.revents = 0;
 
 	return poll(&mqtt_poll_fd, 1, timeout_ms);
 }
 
+static int resolve_broker_address(void)
+{
+	char port[6];
+	char resolved_address[INET_ADDRSTRLEN];
+	struct zsock_addrinfo *result = NULL;
+	const struct zsock_addrinfo hints = {
+		.ai_family = AF_INET,
+		.ai_socktype = SOCK_STREAM,
+	};
+	int err;
+
+	snprintk(port, sizeof(port), "%d", CONFIG_WIFI_FAN_MQTT_PORT);
+	err = zsock_getaddrinfo(CONFIG_WIFI_FAN_MQTT_HOST, port, &hints,
+			       &result);
+	if (err != 0) {
+		LOG_ERR("Failed to resolve MQTT host '%s': %s",
+			CONFIG_WIFI_FAN_MQTT_HOST, zsock_gai_strerror(err));
+		return -EHOSTUNREACH;
+	}
+	if (result == NULL || result->ai_addr == NULL ||
+	    result->ai_addrlen < sizeof(broker_address)) {
+		LOG_ERR("No IPv4 address found for MQTT host '%s'",
+			CONFIG_WIFI_FAN_MQTT_HOST);
+		if (result != NULL) {
+			zsock_freeaddrinfo(result);
+		}
+		return -ENOENT;
+	}
+
+	memcpy(&broker_address, result->ai_addr, sizeof(broker_address));
+	zsock_freeaddrinfo(result);
+
+	if (inet_ntop(AF_INET, &broker_address.sin_addr, resolved_address,
+		      sizeof(resolved_address)) != NULL) {
+		LOG_INF("Resolved MQTT host '%s' to %s",
+			CONFIG_WIFI_FAN_MQTT_HOST, resolved_address);
+	}
+
+	return 0;
+}
+
 static void mqtt_client_prepare(void)
 {
 	mqtt_client_init(&mqtt_client_ctx);
-
-	memset(&broker_address, 0, sizeof(broker_address));
-	broker_address.sin_family = AF_INET;
-	broker_address.sin_port = htons(CONFIG_WIFI_FAN_MQTT_PORT);
-	(void)inet_pton(AF_INET, CONFIG_WIFI_FAN_MQTT_HOST,
-			&broker_address.sin_addr);
 
 	mqtt_client_ctx.broker = &broker_address;
 	mqtt_client_ctx.evt_cb = mqtt_event_handler;
 	mqtt_client_ctx.client_id.utf8 = (uint8_t *)MQTT_CLIENT_ID;
 	mqtt_client_ctx.client_id.size = sizeof(MQTT_CLIENT_ID) - 1U;
 	mqtt_client_ctx.protocol_version = MQTT_VERSION_3_1_1;
-	mqtt_client_ctx.transport.type = MQTT_TRANSPORT_NON_SECURE;
+	mqtt_client_ctx.transport.type = MQTT_TRANSPORT_SECURE;
 	mqtt_client_ctx.rx_buf = mqtt_rx_buffer;
 	mqtt_client_ctx.rx_buf_size = sizeof(mqtt_rx_buffer);
 	mqtt_client_ctx.tx_buf = mqtt_tx_buffer;
@@ -387,15 +423,22 @@ static void mqtt_client_prepare(void)
 	mqtt_client_ctx.keepalive = 30U;
 	mqtt_client_ctx.clean_session = 1U;
 
-	if (strlen(CONFIG_WIFI_FAN_MQTT_USERNAME) > 0U) {
-		mqtt_username.utf8 = (uint8_t *)CONFIG_WIFI_FAN_MQTT_USERNAME;
-		mqtt_username.size = strlen(CONFIG_WIFI_FAN_MQTT_USERNAME);
-		mqtt_client_ctx.user_name = &mqtt_username;
+	mqtt_username.utf8 = (uint8_t *)CONFIG_WIFI_FAN_MQTT_USERNAME;
+	mqtt_username.size = strlen(CONFIG_WIFI_FAN_MQTT_USERNAME);
+	mqtt_client_ctx.user_name = &mqtt_username;
 
-		mqtt_password.utf8 = (uint8_t *)CONFIG_WIFI_FAN_MQTT_PASSWORD;
-		mqtt_password.size = strlen(CONFIG_WIFI_FAN_MQTT_PASSWORD);
-		mqtt_client_ctx.password = &mqtt_password;
-	}
+	mqtt_password.utf8 = (uint8_t *)CONFIG_WIFI_FAN_MQTT_PASSWORD;
+	mqtt_password.size = strlen(CONFIG_WIFI_FAN_MQTT_PASSWORD);
+	mqtt_client_ctx.password = &mqtt_password;
+
+	mqtt_client_ctx.transport.tls.config.peer_verify =
+		TLS_PEER_VERIFY_REQUIRED;
+	mqtt_client_ctx.transport.tls.config.cipher_list = NULL;
+	mqtt_client_ctx.transport.tls.config.sec_tag_list = mqtt_tls_sec_tags;
+	mqtt_client_ctx.transport.tls.config.sec_tag_count =
+		MQTT_TLS_SEC_TAG_COUNT;
+	mqtt_client_ctx.transport.tls.config.hostname =
+		CONFIG_WIFI_FAN_MQTT_HOST;
 
 	mqtt_will_topic.topic.utf8 = (uint8_t *)TOPIC_AVAILABILITY;
 	mqtt_will_topic.topic.size = sizeof(TOPIC_AVAILABILITY) - 1U;
@@ -436,11 +479,15 @@ int mqtt_fan_run(void)
 	int64_t next_rssi_publish;
 	int err;
 
-	if (inet_pton(AF_INET, CONFIG_WIFI_FAN_MQTT_HOST,
-		      &broker_address.sin_addr) != 1) {
-		LOG_ERR("MQTT host must be an IPv4 address: %s",
-			CONFIG_WIFI_FAN_MQTT_HOST);
+	if (strlen(CONFIG_WIFI_FAN_MQTT_USERNAME) == 0U ||
+	    strlen(CONFIG_WIFI_FAN_MQTT_PASSWORD) == 0U) {
+		LOG_ERR("MQTT TLS username and password must be configured");
 		return -EINVAL;
+	}
+
+	err = resolve_broker_address();
+	if (err != 0) {
+		return err;
 	}
 
 	mqtt_connected = false;
