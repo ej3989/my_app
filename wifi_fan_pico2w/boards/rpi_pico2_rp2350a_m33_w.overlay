@@ -1,0 +1,44 @@
+#include <zephyr/dt-bindings/gpio/gpio.h>
+
+/ {
+	aliases {
+		led0 = &onboard_led;
+		fan-speed-1-relay = &fan_speed_1_relay;
+		fan-speed-2-relay = &fan_speed_2_relay;
+		fan-speed-3-relay = &fan_speed_3_relay;
+		fan-osc-relay = &fan_osc_relay;
+	};
+
+	status_leds {
+		compatible = "gpio-leds";
+
+		onboard_led: onboard_led {
+			gpios = <&cyw43_gpio 0 GPIO_ACTIVE_HIGH>;
+			label = "Pico 2 W onboard LED";
+		};
+	};
+
+	relays {
+		compatible = "gpio-leds";
+
+		fan_speed_1_relay: fan_speed_1_relay {
+			gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+			label = "Fan speed 1 relay";
+		};
+
+		fan_speed_2_relay: fan_speed_2_relay {
+			gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;
+			label = "Fan speed 2 relay";
+		};
+
+		fan_speed_3_relay: fan_speed_3_relay {
+			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+			label = "Fan speed 3 relay";
+		};
+
+		fan_osc_relay: fan_osc_relay {
+			gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
+			label = "Fan oscillation relay";
+		};
+	};
+};

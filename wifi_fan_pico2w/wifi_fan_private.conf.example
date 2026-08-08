@@ -1,0 +1,15 @@
+# Copy this file to wifi_fan_private.conf and replace the example values.
+# wifi_fan_private.conf is intentionally ignored by Git.
+
+CONFIG_WIFI_FAN_WIFI_SSID="YOUR_WIFI_SSID"
+CONFIG_WIFI_FAN_WIFI_PASSWORD="YOUR_WIFI_PASSWORD"
+
+# Raspberry Pi / Mosquitto address and credentials
+# TLS certificate hostname; do not use the broker's numeric IP address.
+CONFIG_WIFI_FAN_MQTT_HOST="mqtt.example.com"
+CONFIG_WIFI_FAN_MQTT_PORT=8883
+# This must be a user that actually exists in Mosquitto's password file.
+# The MQTT client ID is already "wifi_fan_pico2w" in the source; it is not
+# automatically a valid Mosquitto username.
+CONFIG_WIFI_FAN_MQTT_USERNAME="YOUR_MQTT_USERNAME"
+CONFIG_WIFI_FAN_MQTT_PASSWORD="replace-me"
