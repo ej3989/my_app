@@ -90,7 +90,7 @@ west espressif monitor
 
 ```text
 Wi-Fi fan controller start
-All active-high relays initialized OFF
+All active-low relays initialized OFF (GPIO HIGH)
 MQTT CA certificate registered
 Connecting to Wi-Fi SSID '...'
 Connected to Wi-Fi access point

@@ -1,6 +1,6 @@
 # Pico 2 W Wi-Fi MQTT Fan Controller
 
-Raspberry Pi Pico 2 W와 Zephyr를 사용해 active-high 릴레이 네 개로 3단
+Raspberry Pi Pico 2 W와 Zephyr를 사용해 active-low 릴레이 네 개로 3단
 기계식 선풍기를 제어하는 프로젝트입니다. 기존 `wifi_fan` ESP32-S3 제어기를
 대체하면서 Home Assistant의 기존 선풍기 장치와 엔티티를 그대로 이어받습니다.
 
@@ -174,7 +174,7 @@ RTT는 SWD의 RAM 접근을 통해 로그를 읽습니다. monitor가 연결되�
 
 ```text
 Pico 2 W Wi-Fi fan controller start
-All active-high relays initialized OFF
+All active-low relays initialized OFF (GPIO HIGH)
 MQTT CA certificate registered
 Connecting to Wi-Fi SSID '...'
 Connected to Wi-Fi access point

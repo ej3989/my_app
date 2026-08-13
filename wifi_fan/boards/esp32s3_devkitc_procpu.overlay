@@ -12,22 +12,22 @@
 		compatible = "gpio-leds";
 
 		fan_speed_1_relay: fan_speed_1_relay {
-			gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
 			label = "Fan speed 1 relay";
 		};
 
 		fan_speed_2_relay: fan_speed_2_relay {
-			gpios = <&gpio0 5 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
 			label = "Fan speed 2 relay";
 		};
 
 		fan_speed_3_relay: fan_speed_3_relay {
-			gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
 			label = "Fan speed 3 relay";
 		};
 
 		fan_osc_relay: fan_osc_relay {
-			gpios = <&gpio0 7 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
 			label = "Fan oscillation relay";
 		};
 	};

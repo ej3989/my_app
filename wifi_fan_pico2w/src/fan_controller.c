@@ -77,7 +77,7 @@ int fan_controller_init(void)
 
 	current_state.speed = 0U;
 	current_state.oscillating = false;
-	LOG_INF("All active-high relays initialized OFF");
+	LOG_INF("All active-low relays initialized OFF (GPIO HIGH)");
 	return 0;
 }
 
