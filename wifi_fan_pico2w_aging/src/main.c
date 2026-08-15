@@ -14,7 +14,7 @@
 #include "time_manager.h"
 #include "wifi_manager.h"
 
-LOG_MODULE_REGISTER(wifi_fan_pico2w, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(wifi_fan_pico2w_aging, LOG_LEVEL_INF);
 
 int main(void)
 {
@@ -23,7 +23,8 @@ int main(void)
 	bool ota_server_started = false;
 #endif
 
-	LOG_INF("Pico 2 W Wi-Fi fan controller v%s start", APP_VERSION_STRING);
+	LOG_INF("Pico 2 W Wi-Fi fan aging controller v%s start",
+		APP_VERSION_STRING);
 
 	err = fan_controller_init();
 	if (err != 0) {
@@ -57,7 +58,12 @@ int main(void)
 		}
 
 #if defined(CONFIG_MCUMGR_TRANSPORT_UDP)
-		/* Start SMP/UDP only after DHCP has supplied an IPv4 address. */
+		/*
+		 * Start SMP/UDP only after DHCP has supplied an IPv4 address.
+		 * Starting it during system initialization can miss the usable-network
+		 * transition because the Wi-Fi interface is already administratively UP
+		 * before it owns an IPv4 address.
+		 */
 		if (!ota_server_started) {
 			err = smp_udp_open();
 			if (err != 0) {

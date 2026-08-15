@@ -6,19 +6,19 @@ Raspberry Pi Pico 2 W와 Zephyr를 사용해 active-low 릴레이 네 개로 3�
 
 ## 하드웨어 연결
 
-| 기능 | Pico 2 W 핀 | 릴레이 동작 |
-|---|---:|---|
-| 풍속 1 | GP4 | High인 동안 ON |
-| 풍속 2 | GP5 | High인 동안 ON |
-| 풍속 3 | GP6 | High인 동안 ON |
-| 회전 | GP7 | High인 동안 ON |
+| 기능 | Pico 2 W 핀 | GPIO 출력 | 릴레이 상태 |
+|---|---:|---:|---|
+| 풍속 1 | GP4 | Low | ON |
+| 풍속 2 | GP5 | Low | ON |
+| 풍속 3 | GP6 | Low | ON |
+| 회전 | GP7 | Low | ON |
 
 풍속을 바꿀 때 세 풍속 릴레이를 모두 끈 뒤 100ms 후 선택한 릴레이 하나만
 켭니다. 부팅 시 모든 릴레이는 OFF입니다. Pico 2 W의 Wi-Fi가 내부적으로
 사용하는 GP23, GP24, GP25, GP29는 릴레이에 사용하지 않습니다.
 
-Pico 2 W의 GPIO는 3.3V입니다. 릴레이 모듈 입력이 3.3V High를 인식하는지
-확인하고, 릴레이 코일 전류를 GPIO에서 직접 공급하지 마십시오.
+Pico 2 W의 GPIO는 3.3V입니다. 릴레이 모듈은 active-low이므로 High가 OFF이고
+Low가 ON입니다. 릴레이 코일 전류를 GPIO에서 직접 공급하지 마십시오.
 
 ## 프로젝트 설정 상태
 
@@ -142,6 +142,87 @@ EJ_APP/build_pico2w_fan/zephyr/zephyr.uf2
 Pico 2 W의 BOOTSEL 버튼을 누른 채 USB를 연결하고 나타나는 저장장치에 UF2를
 복사하면 됩니다.
 
+## 선택형 OTA 구성
+
+검증된 aging 보드와 같은 MCUboot/MCUmgr UDP OTA 구성이 포함되어 있습니다.
+일반 빌드는 OTA를 포함하지 않으며, OTA 빌드는 다음 파일들을 추가로 사용합니다.
+
+- `VERSION`: 애플리케이션 및 MCUboot 이미지 버전
+- `sysbuild.conf`: 애플리케이션과 MCUboot를 함께 빌드
+- `ota-mcumgr-udp.conf`: 같은 LAN의 UDP 1337 MCUmgr 서버
+- `..._w_mcuboot.conf`, `.overlay`: MCUboot 보드에서도 Pico 전용 CYW43439와
+  active-low 릴레이 설정 유지
+- `scripts/ota_udp.py`: probe/upload/test/reset/confirm 도구
+
+OTA용 빌드 명령은 다음과 같습니다.
+
+```sh
+cd /Volumes/ej_disk/zephyrproject
+
+.venv/bin/west build -p always --sysbuild \
+  -b rpi_pico2/rp2350a/m33/w/mcuboot \
+  -d EJ_APP/build_pico2w_fan_ota \
+  EJ_APP/wifi_fan_pico2w \
+  -- -DEXTRA_CONF_FILE="wifi_fan_private.conf;ota-mcumgr-udp.conf"
+```
+
+현재 원본 보드에 MCUboot가 아직 없다면 최초 한 번은 전체 sysbuild 결과를
+Pico Debug/OpenOCD로 물리 플래시해야 합니다.
+
+```sh
+west flash \
+  -d EJ_APP/build_pico2w_fan_ota \
+  -r openocd \
+  --openocd /Users/jaeheelee/.pico-sdk/openocd/0.12.0+dev/openocd \
+  --openocd-search /Users/jaeheelee/.pico-sdk/openocd/0.12.0+dev/scripts
+```
+
+부팅 후 다음 로그가 있어야 OTA 서버가 준비된 것입니다. 서버는 system init에서
+자동으로 열지 않고 DHCP가 실제 IPv4 주소를 배정한 뒤 명시적으로 시작합니다.
+
+```text
+IPv4 address acquired: 192.168.x.x
+MCUmgr OTA server listening on UDP port 1337
+```
+
+OTA 도구 환경은 다음처럼 한 번 준비합니다.
+
+```sh
+cd /Volumes/ej_disk/zephyrproject
+.venv/bin/python -m venv EJ_APP/wifi_fan_pico2w/.ota-venv
+EJ_APP/wifi_fan_pico2w/.ota-venv/bin/python -m pip install \
+  -r EJ_APP/wifi_fan_pico2w/ota-requirements.txt
+
+OTA_PY=EJ_APP/wifi_fan_pico2w/.ota-venv/bin/python
+OTA_TOOL=EJ_APP/wifi_fan_pico2w/scripts/ota_udp.py
+```
+
+현재 상태 확인과 다음 버전 업로드 순서는 다음과 같습니다.
+
+```sh
+$OTA_PY $OTA_TOOL <PICO_IP> probe
+
+$OTA_PY $OTA_TOOL <PICO_IP> upload \
+  EJ_APP/build_pico2w_fan_ota/wifi_fan_pico2w/zephyr/zephyr.signed.bin \
+  --timeout 30 --retries 10
+
+$OTA_PY $OTA_TOOL <PICO_IP> test
+$OTA_PY $OTA_TOOL <PICO_IP> reset
+```
+
+UDP 응답이 유실되면 업로드 도구가 재접속하고 보드가 기억한 offset부터 이어서
+전송합니다. 새 시험 이미지는 Wi-Fi, MQTT TLS, Discovery와 최초 상태 발행까지
+성공한 뒤 자동으로 confirm됩니다. 재부팅 후 다음 결과가 최종 성공 상태입니다.
+
+```text
+slot  version  active  pending  confirmed  bootable
+0     x.y.z    True    False    True       True
+```
+
+새 버전을 만들 때는 `VERSION`을 먼저 증가시켜야 합니다. UDP 1337은 인증이나
+암호화가 없는 같은 LAN 전용 관리 포트이므로 공유기 포트 포워딩을 하면 안 됩니다.
+MQTT TLS의 `fan-ca.crt`와 MCUboot 이미지 서명키는 서로 다른 용도입니다.
+
 ## 로그 확인
 
 로그는 UART0와 SEGGER RTT 양쪽으로 출력됩니다.
@@ -173,12 +254,13 @@ RTT는 SWD의 RAM 접근을 통해 로그를 읽습니다. monitor가 연결되�
 정상적인 로그 순서는 다음과 같습니다.
 
 ```text
-Pico 2 W Wi-Fi fan controller start
+Pico 2 W Wi-Fi fan controller v1.0.1 start
 All active-low relays initialized OFF (GPIO HIGH)
 MQTT CA certificate registered
 Connecting to Wi-Fi SSID '...'
 Connected to Wi-Fi access point
-IPv4 address acquired
+IPv4 address acquired: 192.168.x.x
+MCUmgr OTA server listening on UDP port 1337
 System time synchronized
 Resolved MQTT host '...'
 Connected to MQTT broker

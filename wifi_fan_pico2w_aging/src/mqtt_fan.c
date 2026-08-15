@@ -7,9 +7,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/app_version.h>
-#if defined(CONFIG_BOOTLOADER_MCUBOOT)
 #include <zephyr/dfu/mcuboot.h>
-#endif
 #include <zephyr/logging/log.h>
 #include <zephyr/net/mqtt.h>
 #include <zephyr/net/socket.h>
@@ -30,23 +28,23 @@ LOG_MODULE_REGISTER(mqtt_fan, LOG_LEVEL_INF);
 #define MQTT_POLL_TIMEOUT_MS 1000
 #define RSSI_PUBLISH_INTERVAL_MS 30000
 
-#define TOPIC_POWER_COMMAND       "wifi_fan/power/set"
-#define TOPIC_POWER_STATE         "wifi_fan/power/state"
-#define TOPIC_SPEED_COMMAND       "wifi_fan/speed/set"
-#define TOPIC_SPEED_STATE         "wifi_fan/speed/state"
-#define TOPIC_OSC_COMMAND         "wifi_fan/oscillation/set"
-#define TOPIC_OSC_STATE           "wifi_fan/oscillation/state"
-#define TOPIC_AVAILABILITY        "wifi_fan/availability"
-#define TOPIC_RSSI_STATE          "wifi_fan/wifi_rssi/state"
-#define TOPIC_FAN_DISCOVERY       "homeassistant/fan/wifi_fan_esp32s3/fan/config"
-#define TOPIC_RSSI_DISCOVERY      "homeassistant/sensor/wifi_fan_esp32s3/rssi/config"
+#define TOPIC_POWER_COMMAND       "wifi_fan/aging01/power/set"
+#define TOPIC_POWER_STATE         "wifi_fan/aging01/power/state"
+#define TOPIC_SPEED_COMMAND       "wifi_fan/aging01/speed/set"
+#define TOPIC_SPEED_STATE         "wifi_fan/aging01/speed/state"
+#define TOPIC_OSC_COMMAND         "wifi_fan/aging01/oscillation/set"
+#define TOPIC_OSC_STATE           "wifi_fan/aging01/oscillation/state"
+#define TOPIC_AVAILABILITY        "wifi_fan/aging01/availability"
+#define TOPIC_RSSI_STATE          "wifi_fan/aging01/wifi_rssi/state"
+#define TOPIC_FAN_DISCOVERY       "homeassistant/fan/wifi_fan_pico2w_aging01/fan/config"
+#define TOPIC_RSSI_DISCOVERY      "homeassistant/sensor/wifi_fan_pico2w_aging01/rssi/config"
 
-#define MQTT_CLIENT_ID "wifi_fan_pico2w"
+#define MQTT_CLIENT_ID "wifi_fan_pico2w_aging01"
 
 static const char fan_discovery_payload[] =
 	"{"
-	"\"name\":\"Bedroom Fan\","
-	"\"unique_id\":\"wifi_fan_esp32s3_fan\","
+	"\"name\":\"Pico Fan Aging 01\","
+	"\"unique_id\":\"wifi_fan_pico2w_aging01_fan\","
 	"\"command_topic\":\"" TOPIC_POWER_COMMAND "\","
 	"\"state_topic\":\"" TOPIC_POWER_STATE "\","
 	"\"payload_on\":\"ON\",\"payload_off\":\"OFF\","
@@ -62,8 +60,8 @@ static const char fan_discovery_payload[] =
 	"\"payload_not_available\":\"offline\","
 	"\"retain\":false,"
 	"\"device\":{"
-	"\"identifiers\":[\"wifi_fan_esp32s3\"],"
-	"\"name\":\"Bedroom Fan Controller\","
+	"\"identifiers\":[\"wifi_fan_pico2w_aging01\"],"
+	"\"name\":\"Pico Fan Aging Controller 01\","
 	"\"manufacturer\":\"Zephyr practice\","
 	"\"model\":\"Raspberry Pi Pico 2 W relay fan\","
 	"\"sw_version\":\"" APP_VERSION_STRING "\"}"
@@ -72,14 +70,14 @@ static const char fan_discovery_payload[] =
 static const char rssi_discovery_payload[] =
 	"{"
 	"\"name\":\"Wi-Fi RSSI\","
-	"\"unique_id\":\"wifi_fan_esp32s3_rssi\","
+	"\"unique_id\":\"wifi_fan_pico2w_aging01_rssi\","
 	"\"state_topic\":\"" TOPIC_RSSI_STATE "\","
 	"\"availability_topic\":\"" TOPIC_AVAILABILITY "\","
 	"\"device_class\":\"signal_strength\","
 	"\"state_class\":\"measurement\","
 	"\"unit_of_measurement\":\"dBm\","
 	"\"entity_category\":\"diagnostic\","
-	"\"device\":{\"identifiers\":[\"wifi_fan_esp32s3\"]}"
+	"\"device\":{\"identifiers\":[\"wifi_fan_pico2w_aging01\"]}"
 	"}";
 
 static uint8_t mqtt_rx_buffer[MQTT_RX_BUFFER_SIZE];
@@ -195,7 +193,6 @@ static int publish_discovery(void)
 
 static int confirm_running_ota_image(void)
 {
-#if defined(CONFIG_BOOTLOADER_MCUBOOT)
 	int err;
 
 	if (boot_is_img_confirmed()) {
@@ -210,9 +207,6 @@ static int confirm_running_ota_image(void)
 	}
 
 	return err;
-#else
-	return 0;
-#endif
 }
 
 static int apply_command(const struct mqtt_utf8 *topic, const char *payload)
