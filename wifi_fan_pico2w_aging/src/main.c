@@ -11,6 +11,7 @@
 #include "mqtt_fan.h"
 #include "mqtt_tls.h"
 #include "status_led.h"
+#include "system_watchdog.h"
 #include "time_manager.h"
 #include "wifi_manager.h"
 
@@ -47,7 +48,14 @@ int main(void)
 		return err;
 	}
 
+	err = system_watchdog_init();
+	if (err != 0) {
+		return err;
+	}
+
 	while (true) {
+		system_watchdog_feed();
+
 		if (!wifi_manager_is_connected()) {
 			err = wifi_manager_connect();
 			if (err != 0) {
@@ -56,6 +64,7 @@ int main(void)
 				continue;
 			}
 		}
+		system_watchdog_feed();
 
 #if defined(CONFIG_MCUMGR_TRANSPORT_UDP)
 		/*
@@ -84,8 +93,10 @@ int main(void)
 			k_sleep(K_SECONDS(10));
 			continue;
 		}
+		system_watchdog_feed();
 
 		err = mqtt_fan_run();
+		system_watchdog_feed();
 		LOG_WRN("MQTT session ended (err %d); reconnecting", err);
 		k_sleep(K_SECONDS(5));
 	}

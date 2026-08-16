@@ -55,6 +55,30 @@ homeassistant/sensor/wifi_fan_pico2w_aging01/rssi/config
 RSSI는 30초마다 보고합니다. 장시간 시험 중 `사용할 수 없음`이 나타난 시각과
 RSSI 이력을 Home Assistant에서 확인할 수 있습니다.
 
+## 자동 복구와 왓치독
+
+버전 1.0.2부터 장시간 에이징 중 멈춤과 장기 네트워크 불능을 자동 복구합니다.
+
+- 메인/MQTT 처리 흐름이 120초 동안 진행하지 못하면 task watchdog이 cold reboot
+  합니다.
+- 정상 MQTT 세션이 600초 동안 한 번도 유지되지 않으면 네트워크 watchdog이 cold
+  reboot합니다. 짧은 끊김에는 기존 Wi-Fi/MQTT 재접속이 먼저 동작합니다.
+- 커널 타이머 자체가 멈추는 더 심한 고장은 약 15초 RP2350 hardware watchdog이
+  SoC reset으로 복구합니다.
+
+```text
+Watchdogs armed: application 120 s, network 600 s, hardware fallback 15 s
+Application watchdog expired; rebooting
+Network unavailable for 600 seconds; rebooting
+Previous reset was caused by the RP2350 hardware watchdog
+Previous reset included a brownout condition
+```
+
+첫 줄은 보호 기능이 정상 시작된 로그입니다. 나머지는 실제로 발생한 원인만
+표시됩니다. OpenOCD가 CPU를 halt한 동안에는 hardware watchdog도 정지하므로 RTT/GDB
+디버깅이 리셋을 유발하지 않습니다. 공유기나 MQTT 서버가 10분 이상 계속 중단되면
+보드는 약 10분마다 재부팅하며 복구를 다시 시도합니다.
+
 ## 비공개 설정
 
 `wifi_fan_private.conf.example`을 `wifi_fan_private.conf`로 복사하고 실제 값을

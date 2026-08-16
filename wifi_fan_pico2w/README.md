@@ -31,6 +31,7 @@ Low가 ON입니다. 릴레이 코일 전류를 GPIO에서 직접 공급하지 �
 - RSSI: 30초마다 MQTT로 보고
 - CYW43439 확인: Wi-Fi 초기화 후 내장 LED를 계속 ON
 - CYW43439 리소스: Raspberry Pi Pico SDK와 일치하는 firmware/CLM/NVRAM 세트
+- 복구: task watchdog과 RP2350 hardware watchdog 사용
 
 Pico 2 W의 내장 LED는 RP2350 GPIO가 아니라 CYW43439 GPIO0에 연결되어
 있습니다. 부팅 시 Wi-Fi 인터페이스 생성에 성공한 뒤 LED를 켭니다. LED가
@@ -251,12 +252,47 @@ west rtt \
 RTT는 SWD의 RAM 접근을 통해 로그를 읽습니다. monitor가 연결되지 않아도 제어
 동작이 로그 출력 때문에 멈추지 않도록 RTT backend는 drop mode로 설정했습니다.
 
+## 자동 복구와 왓치독
+
+버전 1.0.2부터 두 종류의 task watchdog 채널과 RP2350 하드웨어 왓치독을 함께
+사용합니다.
+
+- 애플리케이션 채널: 메인 제어 흐름과 MQTT 처리 루프가 120초 동안 진행하지
+  못하면 재부팅합니다.
+- 네트워크 채널: Wi-Fi 연결, MQTT TLS 로그인, 구독 및 최초 상태 발행까지 성공한
+  정상 MQTT 세션이 600초 동안 한 번도 유지되지 않으면 재부팅합니다.
+- 하드웨어 fallback: 커널 타이머나 인터럽트 처리 자체가 멈추면 약 15초 후
+  RP2350 하드웨어가 SoC를 리셋합니다.
+
+단순한 일시적 Wi-Fi 또는 MQTT 끊김은 기존 재접속 루프가 먼저 처리합니다. 10분
+네트워크 왓치독은 드라이버나 네트워크 상태가 장시간 복구되지 않는 경우에만 전원
+재인가와 비슷한 cold reboot를 수행하기 위한 마지막 복구 단계입니다. 따라서 공유기
+장애가 계속되면 보드는 약 10분 간격으로 재부팅한 뒤 다시 연결을 시도합니다.
+
+OpenOCD가 CPU를 halt한 동안에는 RP2350 하드웨어 왓치독이 정지하도록 설정되므로
+정상적인 디버깅 때문에 보드가 리셋되지는 않습니다. 다음 부팅에서 reset cause가
+남아 있으면 로그로 원인을 구분할 수 있습니다.
+
+```text
+Watchdogs armed: application 120 s, network 600 s, hardware fallback 15 s
+Previous reset was caused by the RP2350 hardware watchdog
+Previous reset included a brownout condition
+```
+
+첫 번째 줄은 정상적으로 보호 기능이 시작됐다는 뜻입니다. 뒤 두 줄은 각각 이전
+부팅이 하드웨어 왓치독 또는 저전압에 의해 끝났음을 뜻하며, 해당 원인이 없으면
+표시되지 않습니다. task watchdog이 직접 cold reboot한 경우 플랫폼 reset-cause에
+항상 watchdog으로 기록되는 것은 아니므로, 재부팅 직전 RTT에는
+`Application watchdog expired` 또는 `Network unavailable for 600 seconds`가
+출력됩니다.
+
 정상적인 로그 순서는 다음과 같습니다.
 
 ```text
-Pico 2 W Wi-Fi fan controller v1.0.1 start
+Pico 2 W Wi-Fi fan controller v1.0.2 start
 All active-low relays initialized OFF (GPIO HIGH)
 MQTT CA certificate registered
+Watchdogs armed: application 120 s, network 600 s, hardware fallback 15 s
 Connecting to Wi-Fi SSID '...'
 Connected to Wi-Fi access point
 IPv4 address acquired: 192.168.x.x

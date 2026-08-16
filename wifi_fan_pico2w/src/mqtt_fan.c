@@ -19,6 +19,7 @@
 #include "fan_controller.h"
 #include "mqtt_fan.h"
 #include "mqtt_tls.h"
+#include "system_watchdog.h"
 #include "wifi_manager.h"
 
 LOG_MODULE_REGISTER(mqtt_fan, LOG_LEVEL_INF);
@@ -559,8 +560,13 @@ int mqtt_fan_run(void)
 		return err;
 	}
 
+	system_watchdog_network_healthy();
+
 	next_rssi_publish = k_uptime_get() + RSSI_PUBLISH_INTERVAL_MS;
 	while (wifi_manager_is_connected() && mqtt_connected) {
+		system_watchdog_feed();
+		system_watchdog_network_healthy();
+
 		err = mqtt_socket_poll(MQTT_POLL_TIMEOUT_MS);
 		if (err < 0) {
 			err = -errno;

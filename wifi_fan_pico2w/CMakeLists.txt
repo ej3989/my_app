@@ -27,6 +27,7 @@ target_sources(app PRIVATE
   src/time_manager.c
   src/mqtt_tls.c
   src/mqtt_fan.c
+  src/system_watchdog.c
 )
 
 set(gen_dir ${ZEPHYR_BINARY_DIR}/include/generated)
