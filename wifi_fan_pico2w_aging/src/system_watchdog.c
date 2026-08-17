@@ -15,7 +15,7 @@
 LOG_MODULE_REGISTER(system_watchdog, LOG_LEVEL_INF);
 
 #define APPLICATION_STALL_TIMEOUT_MS 120000U
-#define NETWORK_OUTAGE_TIMEOUT_MS    600000U
+#define NETWORK_OUTAGE_TIMEOUT_MS    180000U
 
 static int application_channel = -1;
 static int network_channel = -1;
@@ -27,7 +27,7 @@ static void watchdog_timeout(int channel_id, void *user_data)
 	if (channel_id == application_channel) {
 		printk("Application watchdog expired; rebooting\n");
 	} else if (channel_id == network_channel) {
-		printk("Network unavailable for 600 seconds; rebooting\n");
+		printk("Network unavailable for 180 seconds; rebooting\n");
 	} else {
 		printk("Unknown watchdog channel %d expired; rebooting\n", channel_id);
 	}
@@ -91,7 +91,7 @@ int system_watchdog_init(void)
 		return network_channel;
 	}
 
-	LOG_INF("Watchdogs armed: application 120 s, network 600 s, hardware fallback 15 s");
+	LOG_INF("Watchdogs armed: application 120 s, network 180 s, hardware fallback 15 s");
 	return 0;
 }
 
