@@ -10,6 +10,9 @@
 #include <zephyr/sys/util.h>
 #include <zephyr/task_wdt/task_wdt.h>
 
+#include <hardware/structs/watchdog.h>
+
+#include "fan_controller.h"
 #include "system_watchdog.h"
 
 LOG_MODULE_REGISTER(system_watchdog, LOG_LEVEL_INF);
@@ -19,6 +22,7 @@ LOG_MODULE_REGISTER(system_watchdog, LOG_LEVEL_INF);
 
 static int application_channel = -1;
 static int network_channel = -1;
+static bool hardware_watchdog_active;
 
 static void watchdog_timeout(int channel_id, void *user_data)
 {
@@ -27,7 +31,15 @@ static void watchdog_timeout(int channel_id, void *user_data)
 	if (channel_id == application_channel) {
 		printk("Application watchdog expired; rebooting\n");
 	} else if (channel_id == network_channel) {
-		printk("Network unavailable for 180 seconds; rebooting\n");
+		printk("Network unavailable for 180 seconds; "
+		       "preserving fan state and rebooting\n");
+		fan_preserve_state_for_network_watchdog();
+		if (hardware_watchdog_active) {
+			hw_set_bits(&watchdog_hw->ctrl, WATCHDOG_CTRL_TRIGGER_BITS);
+			for (;;) {
+				/* Hardware reset is imminent. */
+			}
+		}
 	} else {
 		printk("Unknown watchdog channel %d expired; rebooting\n", channel_id);
 	}
@@ -67,6 +79,7 @@ int system_watchdog_init(void)
 			LOG_ERR("Hardware watchdog initialization failed (err %d)", err);
 			return err;
 		}
+		hardware_watchdog_active = true;
 	} else {
 		LOG_WRN("Hardware watchdog unavailable; using task watchdog only");
 		err = task_wdt_init(NULL);

@@ -59,7 +59,8 @@ RSSI 이력을 Home Assistant에서 확인할 수 있습니다.
 
 버전 1.0.2부터 장시간 에이징 중 멈춤과 장기 네트워크 불능을 자동 복구합니다.
 버전 1.0.3에서는 두 보드의 복구 조건을 맞추기 위해 네트워크 왓치독을 10분에서
-3분으로 변경했습니다.
+3분으로 변경했습니다. 버전 1.0.4에서는 네트워크 왓치독 재부팅 전의 풍속과 회전
+상태를 다음 부팅에서 한 번만 복원합니다.
 
 - 메인/MQTT 처리 흐름이 120초 동안 진행하지 못하면 task watchdog이 cold reboot
   합니다.
@@ -71,7 +72,8 @@ RSSI 이력을 Home Assistant에서 확인할 수 있습니다.
 ```text
 Watchdogs armed: application 120 s, network 180 s, hardware fallback 15 s
 Application watchdog expired; rebooting
-Network unavailable for 180 seconds; rebooting
+Network unavailable for 180 seconds; preserving fan state and rebooting
+Restoring state after network watchdog: speed 1, oscillation ON
 Previous reset was caused by the RP2350 hardware watchdog
 Previous reset included a brownout condition
 ```
@@ -80,6 +82,12 @@ Previous reset included a brownout condition
 표시됩니다. OpenOCD가 CPU를 halt한 동안에는 hardware watchdog도 정지하므로 RTT/GDB
 디버깅이 리셋을 유발하지 않습니다. 공유기나 MQTT 서버가 3분 이상 계속 중단되면
 보드는 약 3분마다 재부팅하며 복구를 다시 시도합니다.
+
+복원값은 flash가 아니라 RP2350 watchdog scratch 레지스터에 marker, 상태 및 반전
+검증값으로 저장합니다. 다음 부팅에서 한 번 사용한 즉시 지우므로 flash 마모가 없고,
+일반 전원 인가·수동 reset·OTA reset·brownout은 기존처럼 릴레이 OFF로 시작합니다.
+네트워크 왓치독 재부팅 때에도 GPIO 초기화 동안 아주 짧게 OFF가 된 후 이전 풍속과
+회전 상태가 복원됩니다.
 
 ## 비공개 설정
 

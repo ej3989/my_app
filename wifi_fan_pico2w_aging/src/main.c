@@ -31,6 +31,10 @@ int main(void)
 	if (err != 0) {
 		return err;
 	}
+	err = fan_restore_state_after_network_watchdog();
+	if (err != 0) {
+		return err;
+	}
 
 	err = wifi_manager_init();
 	if (err != 0) {

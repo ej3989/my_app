@@ -256,7 +256,8 @@ RTT는 SWD의 RAM 접근을 통해 로그를 읽습니다. monitor가 연결되�
 
 버전 1.0.2부터 두 종류의 task watchdog 채널과 RP2350 하드웨어 왓치독을 함께
 사용합니다. 버전 1.0.3에서는 실제 선풍기의 복구 시간을 줄이기 위해 네트워크
-왓치독을 10분에서 3분으로 변경했습니다.
+왓치독을 10분에서 3분으로 변경했습니다. 버전 1.0.4에서는 네트워크 왓치독
+재부팅 직전의 풍속과 회전 상태를 다음 부팅에서 한 번만 복원합니다.
 
 - 애플리케이션 채널: 메인 제어 흐름과 MQTT 처리 루프가 120초 동안 진행하지
   못하면 재부팅합니다.
@@ -270,11 +271,24 @@ RTT는 SWD의 RAM 접근을 통해 로그를 읽습니다. monitor가 연결되�
 재인가와 비슷한 cold reboot를 수행하기 위한 마지막 복구 단계입니다. 따라서 공유기
 장애가 계속되면 보드는 약 3분 간격으로 재부팅한 뒤 다시 연결을 시도합니다.
 
+네트워크 왓치독 재부팅 직전에 현재 풍속 0~3과 회전 ON/OFF를 RP2350 watchdog
+scratch 레지스터 0~2에 저장합니다. 다음 부팅은 릴레이를 먼저 모두 OFF로 안전하게
+초기화한 다음 저장값과 반전 검증값이 모두 유효할 때만 이전 동작을 복원하고 marker를
+즉시 지웁니다. 플래시에 기록하지 않으므로 릴레이 명령이나 반복 재부팅에 따른 flash
+마모는 없습니다.
+
+이 복원은 네트워크 왓치독이 직접 시작한 재부팅에만 적용됩니다. 일반 전원 인가,
+수동 reset, OTA reset, brownout 및 유효한 marker가 없는 부팅은 기존처럼 모든
+릴레이가 OFF인 상태로 시작합니다. 재부팅 과정에서는 GPIO 초기화 때문에 출력이
+아주 짧게 OFF가 된 뒤 이전 풍속과 회전 상태로 돌아옵니다.
+
 OpenOCD가 CPU를 halt한 동안에는 RP2350 하드웨어 왓치독이 정지하도록 설정되므로
 정상적인 디버깅 때문에 보드가 리셋되지는 않습니다. 다음 부팅에서 reset cause가
 남아 있으면 로그로 원인을 구분할 수 있습니다.
 
 ```text
+Network unavailable for 180 seconds; preserving fan state and rebooting
+Restoring state after network watchdog: speed 1, oscillation ON
 Watchdogs armed: application 120 s, network 180 s, hardware fallback 15 s
 Previous reset was caused by the RP2350 hardware watchdog
 Previous reset included a brownout condition
@@ -290,7 +304,7 @@ Previous reset included a brownout condition
 정상적인 로그 순서는 다음과 같습니다.
 
 ```text
-Pico 2 W Wi-Fi fan controller v1.0.3 start
+Pico 2 W Wi-Fi fan controller v1.0.4 start
 All active-low relays initialized OFF (GPIO HIGH)
 MQTT CA certificate registered
 Watchdogs armed: application 120 s, network 180 s, hardware fallback 15 s

@@ -6,6 +6,10 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/barrier.h>
+#include <zephyr/sys/util.h>
+
+#include <hardware/structs/watchdog.h>
 
 #include "fan_controller.h"
 
@@ -18,6 +22,15 @@ LOG_MODULE_REGISTER(fan_controller, LOG_LEVEL_INF);
 
 #define FAN_SPEED_MAX 3U
 #define RELAY_BREAK_TIME_MS 100
+
+/* Watchdog scratch 4..7 are reserved by the Pico SDK reboot mechanism. */
+#define FAN_RESTORE_MAGIC             0x46414E31U /* "FAN1" */
+#define FAN_RESTORE_MAGIC_SCRATCH     0U
+#define FAN_RESTORE_STATE_SCRATCH     1U
+#define FAN_RESTORE_INVERSE_SCRATCH   2U
+#define FAN_RESTORE_SPEED_MASK        0x00000003U
+#define FAN_RESTORE_OSCILLATION_BIT   8U
+#define FAN_RESTORE_VALID_MASK        (FAN_RESTORE_SPEED_MASK | BIT(8))
 
 static const struct gpio_dt_spec speed_relays[] = {
 	GPIO_DT_SPEC_GET(SPEED_1_RELAY_NODE, gpios),
@@ -157,4 +170,63 @@ int fan_turn_off(void)
 struct fan_state fan_get_state(void)
 {
 	return current_state;
+}
+
+void fan_preserve_state_for_network_watchdog(void)
+{
+	uint32_t encoded_state = current_state.speed;
+
+	if (current_state.oscillating) {
+		encoded_state |= BIT(FAN_RESTORE_OSCILLATION_BIT);
+	}
+
+	/* Write the marker last so a partial update is never considered valid. */
+	watchdog_hw->scratch[FAN_RESTORE_MAGIC_SCRATCH] = 0U;
+	watchdog_hw->scratch[FAN_RESTORE_STATE_SCRATCH] = encoded_state;
+	watchdog_hw->scratch[FAN_RESTORE_INVERSE_SCRATCH] = ~encoded_state;
+	barrier_dsync_fence_full();
+	watchdog_hw->scratch[FAN_RESTORE_MAGIC_SCRATCH] = FAN_RESTORE_MAGIC;
+	barrier_dsync_fence_full();
+}
+
+int fan_restore_state_after_network_watchdog(void)
+{
+	uint32_t magic = watchdog_hw->scratch[FAN_RESTORE_MAGIC_SCRATCH];
+	uint32_t encoded_state = watchdog_hw->scratch[FAN_RESTORE_STATE_SCRATCH];
+	uint32_t inverse = watchdog_hw->scratch[FAN_RESTORE_INVERSE_SCRATCH];
+	uint8_t speed;
+	bool oscillating;
+	int err;
+
+	/* Consume the marker before operating the relays: restoration is one-shot. */
+	watchdog_hw->scratch[FAN_RESTORE_MAGIC_SCRATCH] = 0U;
+	watchdog_hw->scratch[FAN_RESTORE_STATE_SCRATCH] = 0U;
+	watchdog_hw->scratch[FAN_RESTORE_INVERSE_SCRATCH] = 0U;
+	barrier_dsync_fence_full();
+
+	if (magic != FAN_RESTORE_MAGIC) {
+		return 0;
+	}
+
+	if (inverse != ~encoded_state ||
+	    (encoded_state & ~FAN_RESTORE_VALID_MASK) != 0U) {
+		LOG_WRN("Ignored invalid fan state from watchdog scratch registers");
+		return 0;
+	}
+
+	speed = encoded_state & FAN_RESTORE_SPEED_MASK;
+	if (speed > FAN_SPEED_MAX) {
+		LOG_WRN("Ignored invalid restored fan speed %u", (unsigned int)speed);
+		return 0;
+	}
+	oscillating = (encoded_state & BIT(FAN_RESTORE_OSCILLATION_BIT)) != 0U;
+
+	LOG_INF("Restoring state after network watchdog: speed %u, oscillation %s",
+		(unsigned int)speed, oscillating ? "ON" : "OFF");
+	err = fan_set_speed(speed);
+	if (err != 0) {
+		return err;
+	}
+
+	return fan_set_oscillation(oscillating);
 }

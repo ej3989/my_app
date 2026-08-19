@@ -135,7 +135,8 @@ static int publish_text(const char *topic, const char *payload,
 static int publish_fan_state(void)
 {
 	struct fan_state state = fan_get_state();
-	char speed[2];
+	/* uint8_t can require three digits plus the string terminator. */
+	char speed[4];
 	int err;
 
 	snprintk(speed, sizeof(speed), "%u", (unsigned int)state.speed);
